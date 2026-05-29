@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -82,25 +84,26 @@ fun NowPlayingScreen(
             text = {
                 val q = state.queue
                 if (q.isEmpty()) {
-                    Text("Queue is empty", color = TextDim)
+                    Text("Queue is empty", color = TextDim, modifier = Modifier.padding(vertical = 16.dp))
                 } else {
-                    Column {
-                        q.forEachIndexed { idx, qSong ->
+                    LazyColumn(Modifier.heightIn(max = 350.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        items(q.size) { idx ->
+                            val qSong = q[idx]
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 6.dp),
+                                    .padding(vertical = 4.dp, horizontal = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    "${idx + 1}.",
-                                    color = TextDim,
-                                    fontSize = 13.sp,
-                                    modifier = Modifier.width(24.dp)
-                                )
+                                // drag handle (reorder not supported by simple dialog, just index)
+                                Text("${idx + 1}.", color = TextDim, fontSize = 13.sp, modifier = Modifier.width(28.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(qSong.title, color = TextPrimary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(qSong.artist, color = TextDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                // remove
+                                IconButton(onClick = { playbackManager.removeFromQueue(idx) }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Default.Close, "Remove", tint = TextDim, modifier = Modifier.size(18.dp))
                                 }
                             }
                         }
@@ -210,62 +213,34 @@ fun NowPlayingScreen(
 
             Spacer(Modifier.height(32.dp))
 
-            // ── album art or lyrics ──
-            if (showLyrics) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 100.dp, max = 300.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(CardGrey)
-                        .padding(16.dp)
-                ) {
-                    when {
-                        loadingLyrics -> Box(Modifier.fillMaxWidth().fillMaxHeight(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = PurpleAccent, modifier = Modifier.size(24.dp))
-                        }
-                        lyricsText != null -> Box(Modifier.fillMaxWidth().fillMaxHeight().verticalScroll(rememberScrollState())) {
-                            Text(
-                                lyricsText!!, color = TextSecondary, fontSize = 14.sp,
-                                lineHeight = 22.sp
-                            )
-                        }
-                        else -> Text(
-                            "No lyrics found", color = TextDim, fontSize = 14.sp,
-                            modifier = Modifier.align(Alignment.Center)
-                        )
-                    }
-                }
-            } else {
-                // album art
-                Box(
-                    modifier = Modifier
-                        .size(300.dp)
-                        .shadow(20.dp, RoundedCornerShape(16.dp))
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(CardGrey),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (song != null && song.albumArtUri != null) {
-                        AsyncImage(
-                            model = song.albumArtUri,
-                            contentDescription = "Album Art",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.linearGradient(
-                                        colors = listOf(PurpleAccent.copy(0.3f), PurpleAccent.copy(0.1f))
-                                    )
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.MusicNote, null, tint = TextDim, modifier = Modifier.size(80.dp))
-                        }
+            // ── album art ──
+            Box(
+                modifier = Modifier
+                    .size(280.dp)
+                    .shadow(20.dp, RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(CardGrey),
+                contentAlignment = Alignment.Center
+            ) {
+                if (song != null && song.albumArtUri != null) {
+                    AsyncImage(
+                        model = song.albumArtUri,
+                        contentDescription = "Album Art",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(PurpleAccent.copy(0.3f), PurpleAccent.copy(0.1f))
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.MusicNote, null, tint = TextDim, modifier = Modifier.size(80.dp))
                     }
                 }
             }
@@ -409,6 +384,35 @@ fun NowPlayingScreen(
                     )
                 } else {
                     Icon(Icons.Default.Timer, null, tint = TextDim, modifier = Modifier.size(20.dp))
+                }
+            }
+
+            // ── lyrics (below sleep timer, when toggled) ──
+            if (showLyrics) {
+                Spacer(Modifier.height(12.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 60.dp, max = 250.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(CardGrey)
+                        .padding(16.dp)
+                ) {
+                    when {
+                        loadingLyrics -> Box(Modifier.fillMaxWidth().fillMaxHeight(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = PurpleAccent, modifier = Modifier.size(24.dp))
+                        }
+                        lyricsText != null -> Box(Modifier.fillMaxWidth().fillMaxHeight().verticalScroll(rememberScrollState())) {
+                            Text(
+                                lyricsText!!, color = TextSecondary, fontSize = 14.sp,
+                                lineHeight = 22.sp
+                            )
+                        }
+                        else -> Text(
+                            "No lyrics found", color = TextDim, fontSize = 14.sp,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
                 }
             }
 

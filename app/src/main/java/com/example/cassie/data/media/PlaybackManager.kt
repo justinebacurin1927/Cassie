@@ -108,24 +108,7 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
     }
 
     fun playQueue(songs: List<Song>, startIndex: Int = 0) {
-        val mediaItems = songs.map { song ->
-            MediaItem.Builder()
-                .setMediaId(song.id.toString())
-                .setUri(
-                    Uri.parse(
-                        "content://media/external/audio/media/${song.id}"
-                    )
-                )
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(song.title)
-                        .setArtist(song.artist)
-                        .setAlbumTitle(song.album)
-                        .setArtworkUri(song.albumArtUri?.let { Uri.parse(it) })
-                        .build()
-                )
-                .build()
-        }
+        val mediaItems = songs.map { buildMediaItem(it) }
 
         player?.apply {
             setMediaItems(mediaItems, startIndex, 0)
@@ -206,6 +189,47 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
         sleepHandler = null
         sleepRunnable = null
         _playerState.update { it.copy(sleepTimerRemainingSec = 0) }
+    }
+
+    // ── queue management ─────────────────────────────────────────────
+    fun removeFromQueue(index: Int) {
+        val old = _playerState.value.queue
+        if (index < 0 || index >= old.size) return
+        val newQueue = old.toMutableList().apply { removeAt(index) }
+        player?.let { p ->
+            val mediaItems = newQueue.map { buildMediaItem(it) }
+            p.setMediaItems(mediaItems, p.currentMediaItemIndex.coerceAtMost(mediaItems.size - 1).coerceAtLeast(0), 0)
+        }
+        _playerState.update { it.copy(queue = newQueue) }
+    }
+
+    fun moveInQueue(fromIndex: Int, toIndex: Int) {
+        val old = _playerState.value.queue
+        if (fromIndex < 0 || fromIndex >= old.size || toIndex < 0 || toIndex >= old.size) return
+        val newQueue = old.toMutableList().apply {
+            val item = removeAt(fromIndex)
+            add(toIndex, item)
+        }
+        player?.let { p ->
+            val mediaItems = newQueue.map { buildMediaItem(it) }
+            p.setMediaItems(mediaItems, p.currentMediaItemIndex.coerceAtMost(mediaItems.size - 1).coerceAtLeast(0), 0)
+        }
+        _playerState.update { it.copy(queue = newQueue) }
+    }
+
+    private fun buildMediaItem(song: Song): MediaItem {
+        return MediaItem.Builder()
+            .setMediaId(song.id.toString())
+            .setUri(Uri.parse("content://media/external/audio/media/${song.id}"))
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(song.title)
+                    .setArtist(song.artist)
+                    .setAlbumTitle(song.album)
+                    .setArtworkUri(song.albumArtUri?.let { Uri.parse(it) })
+                    .build()
+            )
+            .build()
     }
 
     override fun onCleared() {
