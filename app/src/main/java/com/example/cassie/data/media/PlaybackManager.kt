@@ -96,6 +96,9 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
     /** Return the actual live playback position from ExoPlayer. */
     fun getCurrentPosition(): Long = player?.currentPosition ?: 0
 
+    /** Return the audio session ID needed for equalizer. */
+    fun getAudioSessionId(): Int = player?.audioSessionId ?: -1
+
     fun play(song: Song) {
         val queue = _playerState.value.queue
         val index = queue.indexOfFirst { it.id == song.id }

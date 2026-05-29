@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.NotificationUtil
+import com.example.cassie.data.media.EqualizerManager
 import com.example.cassie.data.media.FavoritesStore
 import com.example.cassie.data.media.PersistenceManager
 import com.example.cassie.data.media.PlaybackManager
@@ -87,6 +88,7 @@ private fun CassieApp() {
     val persistenceManager = remember { PersistenceManager(ctx) }
     val playlistStore = remember { PlaylistStore(persistenceManager) }
     val favoritesStore = remember { FavoritesStore(persistenceManager) }
+    val equalizerManager = remember { EqualizerManager() }
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
     var homeViewModel by remember { mutableStateOf<com.example.cassie.ui.home.HomeViewModel?>(null) }
 
@@ -169,6 +171,7 @@ private fun CassieApp() {
             Screen.NowPlaying -> {
                 NowPlayingScreen(
                     playbackManager = playbackManager,
+                    equalizerManager = equalizerManager,
                     onClose = { currentScreen = Screen.Home },
                 )
             }

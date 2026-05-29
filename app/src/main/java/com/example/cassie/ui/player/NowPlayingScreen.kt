@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import coil.compose.AsyncImage
+import com.example.cassie.data.media.EqualizerManager
 import com.example.cassie.data.media.LyricsRepository
 import com.example.cassie.data.media.PlaybackManager
 import com.example.cassie.data.media.Song
@@ -50,6 +51,7 @@ private val TextDim      = Color.White.copy(alpha = 0.35f)
 @Composable
 fun NowPlayingScreen(
     playbackManager: PlaybackManager,
+    equalizerManager: EqualizerManager? = null,
     onClose: () -> Unit,
 ) {
     val state by playbackManager.playerState.collectAsState()
@@ -65,6 +67,14 @@ fun NowPlayingScreen(
 
     val duration = state.duration.coerceAtLeast(1L)
     val song = state.currentSong
+
+    // ── attach equalizer when a song is playing ──
+    LaunchedEffect(state.currentSong) {
+        if (state.currentSong != null) {
+            val id = playbackManager.getAudioSessionId()
+            if (id > 0) equalizerManager?.attach(id)
+        }
+    }
 
     // ── lyrics state ────────────────────────────────────────────────
     var showLyrics by remember { mutableStateOf(false) }
@@ -120,6 +130,12 @@ fun NowPlayingScreen(
 
     // ── sleep timer state ───────────────────────────────────────────
     var showSleepPicker by remember { mutableStateOf(false) }
+
+    // ── equalizer state ─────────────────────────────────────────────
+    var showEqualizer by remember { mutableStateOf(false) }
+    val eqPresets = remember { equalizerManager?.getPresetNames() ?: emptyList() }
+    var selectedPreset by remember { mutableIntStateOf(equalizerManager?.currentPreset?.toInt() ?: -1) }
+    var bassBoostOn by remember { mutableStateOf(equalizerManager?.isBassBoostEnabled ?: false) }
     if (showSleepPicker) {
         AlertDialog(
             onDismissRequest = { showSleepPicker = false },
@@ -157,6 +173,65 @@ fun NowPlayingScreen(
             confirmButton = {
                 TextButton(onClick = { showSleepPicker = false }) {
                     Text("Close", color = PurpleAccent)
+                }
+            }
+        )
+    }
+
+    // ── equalizer dialog ────────────────────────────────────────────
+    if (showEqualizer && equalizerManager != null) {
+        AlertDialog(
+            onDismissRequest = { showEqualizer = false },
+            containerColor = CardGrey,
+            titleContentColor = TextPrimary,
+            textContentColor = TextSecondary,
+            title = { Text("Equalizer", fontWeight = FontWeight.Bold, color = TextPrimary) },
+            text = {
+                Column {
+                    if (eqPresets.isEmpty()) {
+                        Text("Equalizer not available on this device", color = TextDim, fontSize = 14.sp)
+                    } else {
+                        Text("Preset", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(8.dp))
+                        eqPresets.forEachIndexed { idx, name ->
+                            val isSelected = selectedPreset == idx
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) PurpleAccent.copy(0.2f) else Color.Transparent)
+                                    .clickable {
+                                        selectedPreset = idx
+                                        equalizerManager.setPreset(idx.toShort())
+                                    }
+                                    .padding(vertical = 10.dp, horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(name, color = if (isSelected) PurpleAccent else TextPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                                if (isSelected) Icon(Icons.Default.Check, null, tint = PurpleAccent, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        HorizontalDivider(color = SurfaceGrey)
+                        Spacer(Modifier.height(12.dp))
+                        // bass boost
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("Bass Boost", color = TextSecondary, fontSize = 14.sp)
+                            Switch(
+                                checked = bassBoostOn,
+                                onCheckedChange = {
+                                    bassBoostOn = it
+                                    equalizerManager.setBassBoostEnabled(it)
+                                },
+                                colors = SwitchDefaults.colors(checkedTrackColor = PurpleAccent)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showEqualizer = false }) {
+                    Text("Done", color = PurpleAccent)
                 }
             }
         )
@@ -203,6 +278,12 @@ fun NowPlayingScreen(
                             "Lyrics", tint = if (showLyrics) PurpleAccent else TextDim,
                             modifier = Modifier.size(24.dp)
                         )
+                    }
+                    // equalizer
+                    if (equalizerManager != null) {
+                        IconButton(onClick = { showEqualizer = true }) {
+                            Icon(Icons.Default.Tune, "Equalizer", tint = TextDim, modifier = Modifier.size(24.dp))
+                        }
                     }
                     // queue
                     IconButton(onClick = { showQueue = true }) {
