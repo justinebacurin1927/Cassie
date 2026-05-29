@@ -91,7 +91,11 @@ fun PlaylistScreen(
                     isExpanded = expandedPlaylistId == playlist.id,
                     onToggle = { expandedPlaylistId = if (expandedPlaylistId == playlist.id) null else playlist.id },
                     onDelete = { playlistStore?.delete(playlist.id) },
-                    onSongClick = { song -> playbackManager?.play(song); onSongClick(song) },
+                    onSongClick = { song ->
+                        val playlistSongs = playlistStore?.getSongsForPlaylist(playlist.id, songs) ?: emptyList()
+                        playbackManager?.playInContext(song, playlistSongs)
+                        onSongClick(song)
+                    },
                     onRemove = { songId -> playlistStore?.removeFromPlaylist(playlist.id, songId) },
                     onAdd = { songId -> playlistStore?.addToPlaylist(playlist.id, songId) },
                 )

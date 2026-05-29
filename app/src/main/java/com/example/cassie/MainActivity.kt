@@ -6,16 +6,27 @@ import android.app.NotificationManager
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.view.WindowInsets
-import android.view.WindowInsetsController
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.*
+        import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -45,7 +56,9 @@ import com.example.cassie.data.media.PersistenceManager
 import com.example.cassie.data.media.PlaybackManager
 import com.example.cassie.data.media.PlaylistStore
 import com.example.cassie.ui.home.HomeScreen
+import com.example.cassie.ui.player.AlbumDetailScreen
 import com.example.cassie.ui.player.AlbumScreen
+import com.example.cassie.ui.player.ArtistScreen
 import com.example.cassie.ui.player.MiniPlayer
 import com.example.cassie.ui.player.NowPlayingScreen
 import com.example.cassie.ui.player.PlaylistScreen
@@ -55,7 +68,9 @@ import com.example.cassie.ui.theme.CassieTheme
 sealed class Screen {
     data object Home : Screen()
     data object NowPlaying : Screen()
+    data object Artists : Screen()
     data object Albums : Screen()
+    data class AlbumDetail(val albumName: String) : Screen()
     data object Playlists : Screen()
     data object Top50 : Screen()
 }
@@ -63,11 +78,10 @@ sealed class Screen {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        window.insetsController?.apply {
-            hide(WindowInsets.Type.statusBars())
-            systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(0xFF1A1A1A.toInt()),
+            navigationBarStyle = SystemBarStyle.dark(0xFF1A1A1A.toInt()),
+        )
         // notification channel for media playback
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val ch = NotificationChannel(
@@ -168,12 +182,13 @@ private fun CassieApp() {
     val playerState = playbackManager.playerState.collectAsState()
     val showMiniPlayer = showNavBar && playerState.value.currentSong != null
 
-    val navBarHeight = 56.dp
-    val miniPlayerHeight = 68.dp
-    val totalBottomOverlay = if (showMiniPlayer) navBarHeight + miniPlayerHeight else navBarHeight
+    val navBarHeight = 68.dp
+    val miniPlayerHeight = 60.dp
+    val overlayGap = 8.dp
+    val totalBottomOverlay = if (showMiniPlayer) navBarHeight + miniPlayerHeight + overlayGap else navBarHeight
 
     // ── layout ─────────────────────────────────────────────────────
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         // main content area with bottom padding for overlays
         Box(
             Modifier
@@ -183,8 +198,8 @@ private fun CassieApp() {
             AnimatedContent(
                 targetState = currentScreen,
                 transitionSpec = {
-                    fadeIn(animationSpec = tween(200)) togetherWith
-                        fadeOut(animationSpec = tween(200))
+                    fadeIn(tween(350, easing = FastOutSlowInEasing))
+                        .togetherWith(fadeOut(tween(250)))
                 },
                 label = "nav_transition"
             ) { screen ->
@@ -201,6 +216,7 @@ private fun CassieApp() {
                             listState = homeListState,
                             onNavigateToPlayer = { currentScreen = Screen.NowPlaying },
                             onNavigateToAlbums = { currentScreen = Screen.Albums },
+                            onNavigateToArtists = { currentScreen = Screen.Artists },
                             onNavigateToPlaylists = { currentScreen = Screen.Playlists },
                             onNavigateToTop50 = { currentScreen = Screen.Top50 },
                         )
@@ -212,8 +228,30 @@ private fun CassieApp() {
                             onClose = { currentScreen = Screen.Home },
                         )
                     }
+                    Screen.Artists -> {
+                        ArtistScreen(
+                            songs = songs,
+                            playbackManager = playbackManager,
+                            playlistStore = playlistStore,
+                            favoritesStore = favoritesStore,
+                            onSongClick = { currentScreen = Screen.NowPlaying },
+                            onBack = { currentScreen = Screen.Home },
+                        )
+                    }
                     Screen.Albums -> {
                         AlbumScreen(
+                            songs = songs,
+                            playbackManager = playbackManager,
+                            playlistStore = playlistStore,
+                            favoritesStore = favoritesStore,
+                            onSongClick = { currentScreen = Screen.NowPlaying },
+                            onAlbumClick = { albumName -> currentScreen = Screen.AlbumDetail(albumName) },
+                            onBack = { currentScreen = Screen.Home },
+                        )
+                    }
+                    is Screen.AlbumDetail -> {
+                        AlbumDetailScreen(
+                            albumName = (currentScreen as Screen.AlbumDetail).albumName,
                             songs = songs,
                             playbackManager = playbackManager,
                             playlistStore = playlistStore,
@@ -246,38 +284,53 @@ private fun CassieApp() {
             }
         }
 
-        // mini player (above nav bar)
-        if (showMiniPlayer) {
-            MiniPlayer(
-                playbackManager = playbackManager,
-                onClick = { currentScreen = Screen.NowPlaying },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = navBarHeight)
-            )
-        }
+        // ── Bottom overlays: MiniPlayer stacked above NavBar ──
+        Column(
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            // mini player (appears above nav bar)
+            AnimatedVisibility(
+                visible = showMiniPlayer,
+                enter = fadeIn(animationSpec = tween(300)) + expandVertically(animationSpec = tween(300)),
+                exit = fadeOut(animationSpec = tween(200)) + shrinkVertically(animationSpec = tween(200)),
+            ) {
+                MiniPlayer(
+                    playbackManager = playbackManager,
+                    onClick = { currentScreen = Screen.NowPlaying },
+                )
+            }
 
-        // nav bar at the very bottom
-        if (showNavBar) {
-            StadiumNavBar(
-                activeItem = when (currentScreen) {
+            // visual gap between mini player and nav bar
+            if (showMiniPlayer) {
+                Spacer(Modifier.height(overlayGap))
+            }
+
+            // nav bar at the very bottom
+            if (showNavBar) {
+                val activeId = when (currentScreen) {
                     Screen.Home -> "home"
                     Screen.Albums -> "albums"
+                    Screen.Artists -> "artists"
                     Screen.Playlists -> "playlists"
                     Screen.Top50 -> "top50"
                     else -> "home"
-                },
-                onItemSelected = { id ->
-                    currentScreen = when (id) {
-                        "home" -> Screen.Home
-                        "albums" -> Screen.Albums
-                        "playlists" -> Screen.Playlists
-                        "top50" -> Screen.Top50
-                        else -> Screen.Home
-                    }
-                },
-                modifier = Modifier.align(Alignment.BottomCenter)
-            )
+                }
+                StadiumNavBar(
+                    activeItem = activeId,
+                    isPlaying = playerState.value.isPlaying,
+                    onItemSelected = { id ->
+                        currentScreen = when (id) {
+                            "home" -> Screen.Home
+                            "albums" -> Screen.Albums
+                            "artists" -> Screen.Artists
+                            "playlists" -> Screen.Playlists
+                            "top50" -> Screen.Top50
+                            else -> Screen.Home
+                        }
+                    },
+
+                )
+            }
         }
     }
 }
@@ -292,6 +345,7 @@ private data class NavBarItem(
 private val navItems = listOf(
     NavBarItem("home", Icons.Default.Home, "Home"),
     NavBarItem("albums", Icons.Default.Album, "Albums"),
+    NavBarItem("artists", Icons.Default.Person, "Artists"),
     NavBarItem("playlists", Icons.AutoMirrored.Filled.QueueMusic, "Playlists"),
     NavBarItem("top50", Icons.AutoMirrored.Filled.TrendingUp, "Top 50"),
 )
@@ -299,71 +353,70 @@ private val navItems = listOf(
 @Composable
 private fun StadiumNavBar(
     activeItem: String,
+    isPlaying: Boolean = false,
     onItemSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // now-playing pulse dot animation
+    val infinite = rememberInfiniteTransition(label = "navPulse")
+    val pulseAlpha by infinite.animateFloat(
+        initialValue = 0.3f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1200, easing = LinearEasing), RepeatMode.Reverse),
+        label = "pulse"
+    )
+
     Surface(
         modifier = modifier
-            .fillMaxWidth()
-            .padding(top = 6.dp),
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
+            .fillMaxWidth(),
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         color = CardGrey,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .padding(start = 10.dp, end = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Active pill on far left
-            val activeItemData = navItems.first { it.id == activeItem }
+        Box {
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(SurfaceGrey)
-                    .clickable { onItemSelected(activeItem) }
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .fillMaxWidth()
+                    .height(60.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
-                Icon(
-                    activeItemData.icon,
-                    null,
-                    tint = PurpleAccent,
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    activeItemData.label,
-                    color = TextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            // Spacer pushes inactive items to the right
-            Spacer(Modifier.weight(1f))
-
-            // Inactive items — icons only
-            navItems.filter { it.id != activeItem }.forEach { item ->
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(TextDim.copy(alpha = 0.08f))
-                        .clickable { onItemSelected(item.id) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        item.icon,
-                        contentDescription = item.label,
-                        tint = TextDim,
-                        modifier = Modifier.size(24.dp)
-                    )
+                navItems.forEach { item ->
+                    val isActive = item.id == activeItem
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .clickable { onItemSelected(item.id) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Icon(
+                            item.icon,
+                            contentDescription = item.label,
+                            tint = if (isActive) PurpleAccent else TextDim,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        // now-playing pulse dot between icon and label
+                        if (isActive && isPlaying) {
+                            Spacer(Modifier.height(3.dp))
+                            Box(
+                                Modifier
+                                    .size(4.dp)
+                                    .clip(CircleShape)
+                                    .background(PurpleAccent.copy(alpha = pulseAlpha))
+                            )
+                            Spacer(Modifier.height(3.dp))
+                        } else {
+                            Spacer(Modifier.height(4.dp))
+                        }
+                        Text(
+                            item.label,
+                            color = if (isActive) TextPrimary else TextDim,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium,
+                            letterSpacing = 0.3.sp,
+                        )
+                    }
                 }
-                Spacer(Modifier.width(14.dp))
             }
         }
     }

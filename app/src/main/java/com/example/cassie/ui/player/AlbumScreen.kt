@@ -53,6 +53,7 @@ fun AlbumScreen(
     playlistStore: PlaylistStore? = null,
     favoritesStore: FavoritesStore? = null,
     onSongClick: (Song) -> Unit,
+    onAlbumClick: (String) -> Unit = {},
     onBack: () -> Unit,
 ) {
     val albums = remember(songs) {
@@ -88,16 +89,14 @@ fun AlbumScreen(
             }
 
             items(albums, key = { it.albumName }) { album ->
-                AlbumCard(album, playbackManager, playlistStore, onSongClick)
+                AlbumCard(album, playbackManager, playlistStore, onSongClick, onAlbumClick)
             }
         }
     }
 }
 
 @Composable
-private fun AlbumCard(album: AlbumGroup, playbackManager: PlaybackManager?, playlistStore: PlaylistStore?, onSongClick: (Song) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    var showPlaylistPicker by remember { mutableStateOf<Long?>(null) }
+private fun AlbumCard(album: AlbumGroup, playbackManager: PlaybackManager?, playlistStore: PlaylistStore?, onSongClick: (Song) -> Unit, onAlbumClick: (String) -> Unit = {}) {
     val context = LocalContext.current
 
     Column(
@@ -109,7 +108,7 @@ private fun AlbumCard(album: AlbumGroup, playbackManager: PlaybackManager?, play
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { expanded = !expanded }
+                .clickable { onAlbumClick(album.albumName) }
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -139,86 +138,9 @@ private fun AlbumCard(album: AlbumGroup, playbackManager: PlaybackManager?, play
                 Text(album.albumName, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary, maxLines = 1)
                 Text(album.artist, fontSize = 12.sp, color = TextSecondary, maxLines = 1)
             }
-            Text("${album.songs.size}", color = TextDim, fontSize = 13.sp)
+            Text("${album.songs.size} songs", color = TextDim, fontSize = 13.sp)
             Spacer(Modifier.width(4.dp))
-            Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = TextDim, modifier = Modifier.size(20.dp))
-        }
-
-        if (expanded) {
-            HorizontalDivider(color = TextDim.copy(alpha = 0.1f))
-            album.songs.forEach { song ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // album art small
-                    Box(
-                        modifier = Modifier.size(36.dp).clip(RoundedCornerShape(4.dp)).background(SurfaceGrey),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (song.albumArtUri != null) {
-                            AsyncImage(
-                                model = remember(song.id) {
-                                    ImageRequest.Builder(context).data(song.albumArtUri).size(72)
-                                        .memoryCachePolicy(CachePolicy.ENABLED).diskCachePolicy(CachePolicy.ENABLED).build()
-                                },
-                                contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            Icon(Icons.Default.MusicNote, null, tint = PurpleAccent.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
-                        }
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Text(song.title, color = TextPrimary, fontSize = 14.sp, maxLines = 1, modifier = Modifier.weight(1f))
-                    // add to playlist
-                    Box(
-                        modifier = Modifier.size(28.dp).clip(CircleShape).background(PurpleAccent.copy(0.15f)).clickable { showPlaylistPicker = song.id },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null, tint = PurpleAccent.copy(0.7f), modifier = Modifier.size(16.dp))
-                    }
-                    Spacer(Modifier.width(6.dp))
-                    // play
-                    Box(
-                        modifier = Modifier.size(28.dp).clip(CircleShape).background(TextDim.copy(0.1f)).clickable { playbackManager?.play(song); onSongClick(song) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.PlayArrow, "Play", tint = TextSecondary, modifier = Modifier.size(16.dp))
-                    }
-                }
-
-                // playlist picker
-                if (showPlaylistPicker == song.id && playlistStore != null) {
-                    val playlists by playlistStore.playlists.collectAsState()
-                    AlertDialog(
-                        onDismissRequest = { showPlaylistPicker = null },
-                        containerColor = CardGrey,
-                        title = { Text("Add to Playlist", color = TextPrimary, fontWeight = FontWeight.Bold) },
-                        text = {
-                            if (playlists.isEmpty()) {
-                                Text("No playlists yet!", color = TextDim, fontSize = 14.sp)
-                            } else {
-                                LazyColumn(Modifier.height(200.dp)) {
-                                    items(playlists, key = { it.id }) { pl ->
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable {
-                                                playlistStore.addToPlaylist(pl.id, song.id)
-                                                showPlaylistPicker = null
-                                            }.padding(12.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(Icons.AutoMirrored.Filled.QueueMusic, null, tint = PurpleAccent, modifier = Modifier.size(20.dp))
-                                            Spacer(Modifier.width(10.dp))
-                                            Text(pl.name, color = TextPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        confirmButton = { TextButton(onClick = { showPlaylistPicker = null }) { Text("Done", color = PurpleAccent) } }
-                    )
-                }
-            }
+            Icon(Icons.Default.ChevronRight, null, tint = TextDim, modifier = Modifier.size(20.dp))
         }
     }
 }

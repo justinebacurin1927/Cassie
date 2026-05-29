@@ -46,6 +46,7 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
 
     /** Queue of actions that execute once the controller connects. */
     private val pendingActions = mutableListOf<((MediaController) -> Unit)>()
+    private val pm = PersistenceManager(getApplication())
 
     /** Execute action immediately if controller is ready, otherwise queue it. */
     private fun withController(action: (MediaController) -> Unit) {
@@ -72,10 +73,49 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
 
     init {
         val ctx = getApplication<Application>()
+        // Restore last played song so MiniPlayer shows immediately on reopen
+        restoreLastSong()
         // Start the foreground service for background playback
         ctx.startForegroundService(Intent(ctx, CassiePlaybackService::class.java))
         // Connect to the service's MediaSession asynchronously
         connectToController(0)
+    }
+
+    /** Persist current song so it survives app restarts */
+    private fun saveLastSong(song: Song) {
+        try {
+            val json = org.json.JSONObject()
+            json.put("id", song.id)
+            json.put("title", song.title)
+            json.put("artist", song.artist)
+            json.put("album", song.album)
+            json.put("albumId", song.albumId)
+            json.put("duration", song.duration)
+            json.put("dateAdded", song.dateAdded)
+            json.put("mimeType", song.mimeType)
+            json.put("albumArtUri", song.albumArtUri ?: "")
+            pm.putString("last_song", json.toString())
+        } catch (_: Exception) {}
+    }
+
+    /** Load last played song into playerState immediately */
+    private fun restoreLastSong() {
+        try {
+            val raw = pm.getString("last_song") ?: return
+            val json = org.json.JSONObject(raw)
+            val song = Song(
+                id = json.getLong("id"),
+                title = json.getString("title"),
+                artist = json.getString("artist"),
+                album = json.getString("album"),
+                albumId = json.getLong("albumId"),
+                duration = json.getLong("duration"),
+                dateAdded = json.getLong("dateAdded"),
+                mimeType = json.getString("mimeType"),
+                albumArtUri = json.optString("albumArtUri", null)?.ifEmpty { null },
+            )
+            _playerState.update { it.copy(currentSong = song) }
+        } catch (_: Exception) {}
     }
 
     private fun connectToController(tryCount: Int = 0) {
@@ -131,6 +171,7 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
                 }
                 if (song != null) {
                     listeningCounter.recordPlay(song.id)
+                    saveLastSong(song)
                 }
                 // Refresh audioSessionId for equalizer
                 val sid = CassiePlaybackService.getPlayer()?.audioSessionId ?: -1
@@ -184,15 +225,19 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
 
     fun getAudioSessionId(): Int = _playerState.value.audioSessionId
 
+    /** Play a single song (queue = that song only — skip/next won't work). */
     fun play(song: Song) {
-        val queue = _playerState.value.queue
-        val index = queue.indexOfFirst { it.id == song.id }
-        if (index >= 0) {
-            withController { it.seekTo(index, 0) }
-        } else {
-            playQueue(listOf(song) + queue, 0)
-        }
-        withController { it.play() }
+        playInContext(song, listOf(song))
+    }
+
+    /**
+     * Play a song within its context list.
+     * Queue = the full [context] list starting at [song], so skip/next/shuffle
+     * work naturally because there are more items in the queue.
+     */
+    fun playInContext(song: Song, context: List<Song>) {
+        val index = context.indexOfFirst { it.id == song.id }.coerceAtLeast(0)
+        playQueue(context, index)
     }
 
     fun playQueue(songs: List<Song>, startIndex: Int = 0) {
@@ -207,7 +252,9 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
         }
         currentSongIndex = startIndex
         if (startIndex in songs.indices) {
-            _playerState.update { it.copy(currentSong = songs[startIndex]) }
+            val song = songs[startIndex]
+            _playerState.update { it.copy(currentSong = song) }
+            saveLastSong(song)
         }
         listeningCounter.recordPlay(songs.getOrNull(startIndex)?.id ?: -1)
     }

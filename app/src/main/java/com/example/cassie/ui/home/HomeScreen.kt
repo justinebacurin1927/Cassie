@@ -1,5 +1,6 @@
 package com.example.cassie.ui.home
 
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -13,17 +14,22 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -37,11 +43,9 @@ import com.example.cassie.data.media.Song
 
 // ── Pure Black + Purple Accent Palette ────────────────────────────
 private val PureBlack     = Color(0xFF000000)
-private val DarkGrey      = Color(0xFF121212)
 private val CardGrey      = Color(0xFF1E1E1E)
 private val SurfaceGrey   = Color(0xFF282828)
 private val PurpleAccent  = Color(0xFFBB86FC)
-private val PurpleAccent20= PurpleAccent.copy(alpha = 0.2f)
 private val TextPrimary   = Color.White
 private val TextSecondary = Color.White.copy(alpha = 0.6f)
 private val TextDim       = Color.White.copy(alpha = 0.35f)
@@ -74,17 +78,29 @@ fun HomeScreen(
     favoritesStore: FavoritesStore? = null,
     onNavigateToPlayer: () -> Unit = {},
     onNavigateToAlbums: () -> Unit = {},
+    onNavigateToArtists: () -> Unit = {},
     onNavigateToPlaylists: () -> Unit = {},
     onNavigateToTop50: () -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
 ) {
     val state by viewModel.uiState.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
+    var debouncedQuery by remember { mutableStateOf("") }
     var sortOption by remember { mutableStateOf(viewModel.savedSortOption.value) }
 
     // persist sort changes
     LaunchedEffect(sortOption) {
         viewModel.saveSortOption(sortOption)
+    }
+
+    // debounce search — 300ms delay before filtering
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.isBlank()) {
+            debouncedQuery = ""
+        } else {
+            kotlinx.coroutines.delay(300)
+            debouncedQuery = searchQuery
+        }
     }
 
     val listeningCounter = playbackManager?.listeningCounter
@@ -93,15 +109,13 @@ fun HomeScreen(
         state.songs.sortedByOption(sortOption)
     }
 
-    val filteredSongs = remember(sortedSongs, searchQuery) {
-        if (searchQuery.isBlank()) sortedSongs
-        else {
-            val q = searchQuery.lowercase()
-            sortedSongs.filter {
-                it.title.lowercase().contains(q) ||
-                it.artist.lowercase().contains(q) ||
-                it.album.lowercase().contains(q)
-            }
+    val filteredSongs = remember(sortedSongs, debouncedQuery) {
+        val q = debouncedQuery.lowercase()
+        if (debouncedQuery.isBlank()) sortedSongs
+        else sortedSongs.filter {
+            it.title.lowercase().contains(q) ||
+            it.artist.lowercase().contains(q) ||
+            it.album.lowercase().contains(q)
         }
     }
 
@@ -122,12 +136,46 @@ fun HomeScreen(
             }
     }
 
+    // ── "Your Vibe" listening stats ────────────────────────────────────
+    val vibeStats = remember(listeningCounter?.counts?.value, state.songs) {
+        val counts = listeningCounter?.counts?.value ?: emptyMap()
+        val totalPlays = counts.values.sumOf { it.count }
+        val uniqueSongs = counts.size
+        // top artist by total plays
+        val artistPlays = mutableMapOf<String, Int>()
+        for ((songId, pc) in counts) {
+            val song = state.songs.find { it.id == songId }
+            if (song != null) {
+                artistPlays[song.artist] = (artistPlays[song.artist] ?: 0) + pc.count
+            }
+        }
+        val topArtist = artistPlays.maxByOrNull { it.value }?.key ?: "—"
+        val totalMillis = counts.entries.sumOf { (songId, pc) ->
+            state.songs.find { it.id == songId }?.let { it.duration * pc.count } ?: 0L
+        }
+        val totalMinutes = (totalMillis / 60000).toInt()
+        VibeStats(totalPlays = totalPlays, uniqueSongs = uniqueSongs, topArtist = topArtist, totalMinutes = totalMinutes)
+    }
+
+    // context for queue: search results if searching, full sorted library otherwise
+    val contextSongs = if (debouncedQuery.isBlank()) sortedSongs else filteredSongs
+
     val handleSongClick: (Song) -> Unit = { song ->
         playbackManager?.let { mgr ->
-            mgr.play(song)
+            mgr.playInContext(song, contextSongs)
             onNavigateToPlayer()
         }
         onSongClick(song)
+    }
+
+    // ── live clock ──────────────────────────────────────────────────
+    var clockText by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val now = java.time.LocalTime.now()
+            clockText = java.time.format.DateTimeFormatter.ofPattern("h:mm a").format(now)
+            kotlinx.coroutines.delay(60_000L)
+        }
     }
 
     Box(
@@ -138,21 +186,25 @@ fun HomeScreen(
         when {
             state.isLoading -> LoadingDashboard()
             else -> ContentDashboard(
+                clockText = clockText,
                 songs = sortedSongs,
                 filteredSongs = filteredSongs,
                 searchQuery = searchQuery,
+                debouncedQuery = debouncedQuery,
                 onSearchQueryChange = { searchQuery = it },
                 sortOption = sortOption,
                 onSortOptionChange = { sortOption = it },
                 recentPlays = recentPlays,
                 topSongs = topSongs,
                 albums = albums,
+                vibeStats = vibeStats,
                 isEmpty = state.songs.isEmpty(),
                 onSongClick = handleSongClick,
                 playbackManager = playbackManager,
                 playlistStore = playlistStore,
                 favoritesStore = favoritesStore,
                 onNavigateToAlbums = onNavigateToAlbums,
+                onNavigateToArtists = onNavigateToArtists,
                 onNavigateToPlaylists = onNavigateToPlaylists,
                 onNavigateToTop50 = onNavigateToTop50,
                 listState = listState,
@@ -164,6 +216,7 @@ fun HomeScreen(
 }
 
 data class AlbumPreview(val albumName: String, val artist: String, val songCount: Int)
+data class VibeStats(val totalPlays: Int, val uniqueSongs: Int, val topArtist: String, val totalMinutes: Int = 0)
 
 // ── Loading ───────────────────────────────────────────────────────
 @Composable
@@ -188,21 +241,25 @@ private fun LoadingDashboard() {
 // ── Content Dashboard ─────────────────────────────────────────────
 @Composable
 private fun ContentDashboard(
+    clockText: String,
     songs: List<Song>,
     filteredSongs: List<Song>,
     searchQuery: String,
+    debouncedQuery: String,
     onSearchQueryChange: (String) -> Unit,
     sortOption: SortOption,
     onSortOptionChange: (SortOption) -> Unit,
     recentPlays: List<Song>,
     topSongs: List<Pair<Song, Int>>,
     albums: List<AlbumPreview>,
+    vibeStats: VibeStats,
     isEmpty: Boolean,
     onSongClick: (Song) -> Unit,
     playbackManager: PlaybackManager?,
     playlistStore: PlaylistStore?,
     favoritesStore: FavoritesStore?,
     onNavigateToAlbums: () -> Unit,
+    onNavigateToArtists: () -> Unit,
     onNavigateToPlaylists: () -> Unit,
     onNavigateToTop50: () -> Unit,
     listState: LazyListState,
@@ -213,15 +270,16 @@ private fun ContentDashboard(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(PureBlack)
-                .padding(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 8.dp)
+                .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp)
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
-                    Text("Good evening", color = TextPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    Text(clockText, color = TextPrimary, fontSize = 28.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                     Spacer(Modifier.height(2.dp))
                     Text("${songs.size} songs in library", color = TextSecondary, fontSize = 13.sp)
                 }
                 Row {
+                    IconButton(onClick = onNavigateToArtists) { Icon(Icons.Default.Person, null, tint = GreyIcon, modifier = Modifier.size(22.dp)) }
                     IconButton(onClick = onNavigateToPlaylists) { Icon(Icons.AutoMirrored.Filled.QueueMusic, null, tint = GreyIcon, modifier = Modifier.size(22.dp)) }
                     IconButton(onClick = onNavigateToTop50) { Icon(Icons.AutoMirrored.Filled.TrendingUp, null, tint = GreyIcon, modifier = Modifier.size(22.dp)) }
                 }
@@ -235,7 +293,7 @@ private fun ContentDashboard(
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 Text("Grant music permission to see your songs", color = TextDim, fontSize = 14.sp, textAlign = TextAlign.Center)
             }
-        } else if (searchQuery.isNotBlank()) {
+        } else if (debouncedQuery.isNotBlank()) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 item { Spacer(Modifier.height(8.dp)); SectionTitle("Results (${filteredSongs.size})") }
                 if (filteredSongs.isEmpty()) {
@@ -323,6 +381,13 @@ private fun ContentDashboard(
                                 .background(CardGrey)
                         )
                     }
+
+                    // ── Your Vibe: listening stats card ──
+                    if (vibeStats.totalPlays > 0) {
+                        item { Spacer(Modifier.height(4.dp)) }
+                        item { VibeCard(stats = vibeStats) }
+                        item { Spacer(Modifier.height(8.dp)) }
+                    }
                 }
 
                 // ── Your Library header ──
@@ -397,7 +462,8 @@ private fun SearchBar(query: String, onQueryChange: (String) -> Unit) {
 private fun SongCard(song: Song, onClick: () -> Unit, playbackManager: PlaybackManager? = null, playlistStore: PlaylistStore? = null, favoritesStore: FavoritesStore? = null) {
     var showMenu by remember { mutableStateOf(false) }
     var showPlaylistPicker by remember { mutableStateOf(false) }
-    val isFav by remember { derivedStateOf { favoritesStore?.isFavorite(song.id) == true } }
+    val favIds by favoritesStore?.favoriteIds?.collectAsState() ?: remember { mutableStateOf(emptySet()) }
+    val isFav = song.id in favIds
     val context = LocalContext.current
 
     Row(
@@ -447,11 +513,16 @@ private fun SongCard(song: Song, onClick: () -> Unit, playbackManager: PlaybackM
         Spacer(Modifier.width(6.dp))
 
         // heart
+        val heartScale by animateFloatAsState(
+            targetValue = if (isFav) 1.15f else 1f,
+            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+            label = "heartScale"
+        )
         IconButton(onClick = { favoritesStore?.toggle(song.id) }, modifier = Modifier.size(30.dp)) {
             Icon(
                 if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                 "Favorite", tint = if (isFav) PurpleAccent else GreyIcon,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(18.dp * heartScale)
             )
         }
 
@@ -755,5 +826,63 @@ private fun SortBar(selected: SortOption, onSelect: (SortOption) -> Unit) {
                 )
             }
         }
+    }
+}
+
+// ── Your Vibe Card — listening stats dashboard ────────────────────
+private val VibePurple1 = Color(0xFF2A0A4A)
+private val VibePurple2 = Color(0xFF1A0033)
+
+@Composable
+private fun VibeCard(stats: VibeStats) {
+    val infinite = rememberInfiniteTransition(label = "vibeGrad")
+    val offset by infinite.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(4000, easing = LinearEasing), RepeatMode.Reverse),
+        label = "gradOffset"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(
+                Brush.horizontalGradient(
+                    colors = listOf(VibePurple1, VibePurple2),
+                    startX = 0f,
+                    endX = 800f * offset + 200f
+                )
+            )
+    ) {
+        Box(
+            Modifier.fillMaxWidth().height(2.dp)
+                .background(PurpleAccent.copy(alpha = 0.4f))
+                .align(Alignment.TopCenter)
+        )
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Insights, null,
+                    tint = PurpleAccent.copy(alpha = 0.8f), modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Your Vibe", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(14.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                StatItem(label = "Plays", value = "${stats.totalPlays}")
+                StatItem(label = "Minutes", value = "${stats.totalMinutes}")
+                StatItem(label = "Top Artist", value = stats.topArtist, maxLines = 1)
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatItem(label: String, value: String, maxLines: Int = Int.MAX_VALUE) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold,
+            maxLines = maxLines, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(2.dp))
+        Text(label.uppercase(), color = Color.White.copy(alpha = 0.5f), fontSize = 9.sp, letterSpacing = 1.sp)
     }
 }
