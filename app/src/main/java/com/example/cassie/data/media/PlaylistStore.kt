@@ -13,15 +13,26 @@ data class Playlist(
     val songCount: Int get() = songIds.size
 }
 
-class PlaylistStore {
-    private val _playlists = MutableStateFlow<List<Playlist>>(emptyList())
+class PlaylistStore(persistenceManager: PersistenceManager? = null) {
+    private val pm = persistenceManager
+    private val _playlists = MutableStateFlow<List<Playlist>>(
+        pm?.loadPlaylists() ?: emptyList()
+    )
     val playlists: StateFlow<List<Playlist>> = _playlists.asStateFlow()
 
-    private var nextId: Long = 1
+    private var nextId: Long = pm?.loadNextId() ?: 1L
+
+    private fun persist() {
+        pm?.let {
+            it.savePlaylists(_playlists.value)
+            it.saveNextId(nextId)
+        }
+    }
 
     fun create(name: String): Playlist {
         val playlist = Playlist(id = nextId++, name = name)
         _playlists.update { it + playlist }
+        persist()
         return playlist
     }
 
@@ -33,6 +44,7 @@ class PlaylistStore {
                 } else p
             }
         }
+        persist()
     }
 
     fun removeFromPlaylist(playlistId: Long, songId: Long) {
@@ -43,10 +55,12 @@ class PlaylistStore {
                 } else p
             }
         }
+        persist()
     }
 
     fun delete(playlistId: Long) {
         _playlists.update { it.filter { p -> p.id != playlistId } }
+        persist()
     }
 
     fun rename(playlistId: Long, newName: String) {
@@ -55,6 +69,7 @@ class PlaylistStore {
                 if (p.id == playlistId) p.copy(name = newName) else p
             }
         }
+        persist()
     }
 
     fun getSongsForPlaylist(playlistId: Long, allSongs: List<Song>): List<Song> {

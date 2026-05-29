@@ -1,0 +1,68 @@
+package com.example.cassie.data.media
+
+import android.content.Context
+import android.content.SharedPreferences
+import org.json.JSONArray
+import org.json.JSONObject
+
+class PersistenceManager(context: Context) {
+
+    private val prefs: SharedPreferences =
+        context.getSharedPreferences("cassie_data", Context.MODE_PRIVATE)
+
+    // ── Favorites ──────────────────────────────────────────────────
+
+    fun saveFavoriteIds(ids: Set<Long>) {
+        prefs.edit().putStringSet("favorites", ids.map { it.toString() }.toSet()).apply()
+    }
+
+    fun loadFavoriteIds(): Set<Long> {
+        return prefs.getStringSet("favorites", emptySet())
+            ?.mapNotNull { it.toLongOrNull() }
+            ?.toSet() ?: emptySet()
+    }
+
+    // ── Playlists ──────────────────────────────────────────────────
+
+    fun savePlaylists(playlists: List<Playlist>) {
+        val json = JSONArray()
+        for (p in playlists) {
+            val obj = JSONObject()
+            obj.put("id", p.id)
+            obj.put("name", p.name)
+            val songIds = JSONArray()
+            p.songIds.forEach { songIds.put(it) }
+            obj.put("songIds", songIds)
+            json.put(obj)
+        }
+        prefs.edit().putString("playlists", json.toString()).apply()
+    }
+
+    fun loadPlaylists(): List<Playlist> {
+        val raw = prefs.getString("playlists", null) ?: return emptyList()
+        return try {
+            val json = JSONArray(raw)
+            (0 until json.length()).map { i ->
+                val obj = json.getJSONObject(i)
+                val songIds = mutableListOf<Long>()
+                val arr = obj.getJSONArray("songIds")
+                (0 until arr.length()).forEach { songIds.add(arr.getLong(it)) }
+                Playlist(
+                    id = obj.getLong("id"),
+                    name = obj.getString("name"),
+                    songIds = songIds
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveNextId(nextId: Long) {
+        prefs.edit().putLong("playlist_next_id", nextId).apply()
+    }
+
+    fun loadNextId(): Long {
+        return prefs.getLong("playlist_next_id", 1L)
+    }
+}

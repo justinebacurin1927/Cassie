@@ -36,6 +36,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.NotificationUtil
 import com.example.cassie.data.media.FavoritesStore
+import com.example.cassie.data.media.PersistenceManager
 import com.example.cassie.data.media.PlaybackManager
 import com.example.cassie.data.media.PlaylistStore
 import com.example.cassie.ui.home.HomeScreen
@@ -82,13 +83,14 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun CassieApp() {
     val playbackManager: PlaybackManager = viewModel()
-    val playlistStore = remember { PlaylistStore() }
-    val favoritesStore = remember { FavoritesStore() }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val persistenceManager = remember { PersistenceManager(ctx) }
+    val playlistStore = remember { PlaylistStore(persistenceManager) }
+    val favoritesStore = remember { FavoritesStore(persistenceManager) }
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
     var homeViewModel by remember { mutableStateOf<com.example.cassie.ui.home.HomeViewModel?>(null) }
 
     // ── permission state ──────────────────────────────────────────
-    val ctx = androidx.compose.ui.platform.LocalContext.current
     val requiredPermission = if (Build.VERSION.SDK_INT >= 33)
         Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
     var permissionGranted by remember { mutableStateOf(false) }
