@@ -195,14 +195,14 @@ private fun ContentDashboard(
     onNavigateToTop50: () -> Unit,
     listState: LazyListState,
 ) {
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 80.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // Header
-        item {
+    Column(Modifier.fillMaxSize()) {
+        // ── header + search (fixed at top, outside card) ──
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(PureBlack)
+                .padding(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 8.dp)
+        ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
                     Text("Good evening", color = TextPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
@@ -214,108 +214,103 @@ private fun ContentDashboard(
                     IconButton(onClick = onNavigateToTop50) { Icon(Icons.Default.TrendingUp, null, tint = GreyIcon, modifier = Modifier.size(22.dp)) }
                 }
             }
+            Spacer(Modifier.height(8.dp))
+            SearchBar(searchQuery, onSearchQueryChange)
         }
 
-        // Search
-        item { SearchBar(searchQuery, onSearchQueryChange) }
-
-        if (isEmpty) {
-            item {
-                Box(Modifier.fillMaxWidth().padding(top = 40.dp), contentAlignment = Alignment.Center) {
+        // ── everything inside one big rounded card ──
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .background(CardGrey)
+        ) {
+            if (isEmpty) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("Grant music permission to see your songs", color = TextDim, fontSize = 14.sp, textAlign = TextAlign.Center)
                 }
-            }
-        } else if (searchQuery.isNotBlank()) {
-            item { SectionTitle("Results (${filteredSongs.size})") }
-            if (filteredSongs.isEmpty()) {
-                item { Text("No songs match", color = TextDim, fontSize = 14.sp, modifier = Modifier.padding(vertical = 8.dp)) }
-            }
-            items(filteredSongs, key = { it.id }) { song ->
-                SongCard(song = song, onClick = { onSongClick(song) }, playbackManager = playbackManager, playlistStore = playlistStore, favoritesStore = favoritesStore)
-            }
-        } else {
-            // ── Featured section card (rounded corners) ──
-            if (recentPlays.isNotEmpty() || topSongs.isNotEmpty() || albums.isNotEmpty()) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(CardGrey)
-                            .padding(14.dp)
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            // Recent
-                            if (recentPlays.isNotEmpty()) {
-                                SectionTitle("Recently Played")
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    items(recentPlays, key = { it.id }) { song ->
-                                        QuickPlayCard(song = song, onClick = { onSongClick(song) })
+            } else if (searchQuery.isNotBlank()) {
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    item { Spacer(Modifier.height(12.dp)); SectionTitle("Results (${filteredSongs.size})") }
+                    if (filteredSongs.isEmpty()) {
+                        item { Text("No songs match", color = TextDim, fontSize = 14.sp, modifier = Modifier.padding(vertical = 8.dp)) }
+                    }
+                    items(filteredSongs, key = { it.id }) { song ->
+                        SongCard(song = song, onClick = { onSongClick(song) }, playbackManager = playbackManager, playlistStore = playlistStore, favoritesStore = favoritesStore)
+                    }
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    // Featured section
+                    if (recentPlays.isNotEmpty() || topSongs.isNotEmpty() || albums.isNotEmpty()) {
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 12.dp)) {
+                                if (recentPlays.isNotEmpty()) {
+                                    SectionTitle("Recently Played")
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        items(recentPlays, key = { it.id }) { song ->
+                                            QuickPlayCard(song = song, onClick = { onSongClick(song) })
+                                        }
                                     }
                                 }
-                            }
-                            // Top 3
-                            if (topSongs.isNotEmpty()) {
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    SectionTitle("Top Charts")
-                                    TextButton(onClick = onNavigateToTop50) {
-                                        Text("See all", color = PurpleAccent.copy(0.7f), fontSize = 11.sp, letterSpacing = 1.sp)
+                                if (topSongs.isNotEmpty()) {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                        SectionTitle("Top Charts")
+                                        TextButton(onClick = onNavigateToTop50) {
+                                            Text("See all", color = PurpleAccent.copy(0.7f), fontSize = 11.sp, letterSpacing = 1.sp)
+                                        }
                                     }
-                                }
-                                Column {
-                                    topSongs.forEachIndexed { idx, (song, count) ->
+                                    Column { topSongs.forEachIndexed { idx, (song, count) ->
                                         TopChartRow(rank = idx + 1, song = song, playCount = count, onClick = { onSongClick(song) })
-                                    }
+                                    }}
                                 }
-                            }
-                            // Albums
-                            if (albums.isNotEmpty()) {
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    SectionTitle("Albums")
-                                    TextButton(onClick = onNavigateToAlbums) {
-                                        Text("See all", color = PurpleAccent.copy(0.7f), fontSize = 11.sp, letterSpacing = 1.sp)
+                                if (albums.isNotEmpty()) {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                        SectionTitle("Albums")
+                                        TextButton(onClick = onNavigateToAlbums) {
+                                            Text("See all", color = PurpleAccent.copy(0.7f), fontSize = 11.sp, letterSpacing = 1.sp)
+                                        }
                                     }
-                                }
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    items(albums, key = { it.albumName }) { album ->
-                                        AlbumPreviewCard(album, onClick = onNavigateToAlbums)
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        items(albums, key = { it.albumName }) { album ->
+                                            AlbumPreviewCard(album, onClick = onNavigateToAlbums)
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-            }
 
-            // ── Library section card (rounded corners) ──
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(CardGrey)
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.LibraryMusic, null, tint = PurpleAccent.copy(0.7f), modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            "Your Library",
-                            color = TextPrimary,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            "${songs.size} songs",
-                            color = TextDim,
-                            fontSize = 12.sp,
-                        )
+                    // Library header
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(SurfaceGrey)
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.LibraryMusic, null, tint = PurpleAccent.copy(0.7f), modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(10.dp))
+                                Text("Your Library", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.weight(1f))
+                                Text("${songs.size} songs", color = TextDim, fontSize = 12.sp)
+                            }
+                        }
+                    }
+
+                    // Songs
+                    items(songs, key = { it.id }) { song ->
+                        SongCard(song = song, onClick = { onSongClick(song) }, playbackManager = playbackManager, playlistStore = playlistStore, favoritesStore = favoritesStore)
                     }
                 }
-            }
-            items(songs, key = { it.id }) { song ->
-                SongCard(song = song, onClick = { onSongClick(song) }, playbackManager = playbackManager, playlistStore = playlistStore, favoritesStore = favoritesStore)
             }
         }
     }
