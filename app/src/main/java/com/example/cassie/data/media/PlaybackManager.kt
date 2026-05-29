@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import androidx.compose.runtime.Stable
 import androidx.core.net.toUri
 import androidx.lifecycle.AndroidViewModel
 import androidx.media3.common.MediaItem
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
+@Stable
 data class PlayerState(
     val isPlaying: Boolean = false,
     val currentSong: Song? = null,

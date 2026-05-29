@@ -591,7 +591,6 @@ private fun StadiumNavBar(
         shape = RoundedCornerShape(28.dp),
         color = CardGrey,
         tonalElevation = 0.dp,
-        shadowElevation = 8.dp
     ) {
         Row(
             modifier = Modifier

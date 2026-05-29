@@ -3,9 +3,11 @@ package com.example.cassie.data.media
 import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
+import androidx.compose.runtime.Stable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+@Stable
 data class Song(
     val id: Long,
     val title: String,

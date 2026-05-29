@@ -298,7 +298,6 @@ fun NowPlayingScreen(
             Box(
                 modifier = Modifier
                     .size(280.dp)
-                    .shadow(20.dp, RoundedCornerShape(16.dp))
                     .clip(RoundedCornerShape(16.dp))
                     .background(CardGrey),
                 contentAlignment = Alignment.Center
@@ -418,7 +417,6 @@ fun NowPlayingScreen(
                 Box(
                     modifier = Modifier
                         .size(72.dp)
-                        .shadow(12.dp, CircleShape)
                         .clip(CircleShape)
                         .background(Color.White)
                         .clickable { playbackManager.togglePlayPause() },

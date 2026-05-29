@@ -1,10 +1,12 @@
 package com.example.cassie.data.media
 
+import androidx.compose.runtime.Stable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
+@Stable
 data class Playlist(
     val id: Long,
     val name: String,
