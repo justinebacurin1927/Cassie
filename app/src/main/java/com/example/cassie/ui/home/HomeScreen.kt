@@ -234,72 +234,76 @@ private fun ContentDashboard(
                 SongCard(song = song, onClick = { onSongClick(song) }, playbackManager = playbackManager, playlistStore = playlistStore, favoritesStore = favoritesStore)
             }
         } else {
-            // Recent
-            if (recentPlays.isNotEmpty()) {
-                item { SectionTitle("Recently Played") }
+            // ── Featured section card (rounded corners) ──
+            if (recentPlays.isNotEmpty() || topSongs.isNotEmpty() || albums.isNotEmpty()) {
                 item {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        items(recentPlays, key = { it.id }) { song ->
-                            QuickPlayCard(song = song, onClick = { onSongClick(song) })
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(CardGrey)
+                            .padding(14.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // Recent
+                            if (recentPlays.isNotEmpty()) {
+                                SectionTitle("Recently Played")
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    items(recentPlays, key = { it.id }) { song ->
+                                        QuickPlayCard(song = song, onClick = { onSongClick(song) })
+                                    }
+                                }
+                            }
+                            // Top 3
+                            if (topSongs.isNotEmpty()) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    SectionTitle("Top Charts")
+                                    TextButton(onClick = onNavigateToTop50) {
+                                        Text("See all", color = PurpleAccent.copy(0.7f), fontSize = 11.sp, letterSpacing = 1.sp)
+                                    }
+                                }
+                                Column {
+                                    topSongs.forEachIndexed { idx, (song, count) ->
+                                        TopChartRow(rank = idx + 1, song = song, playCount = count, onClick = { onSongClick(song) })
+                                    }
+                                }
+                            }
+                            // Albums
+                            if (albums.isNotEmpty()) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    SectionTitle("Albums")
+                                    TextButton(onClick = onNavigateToAlbums) {
+                                        Text("See all", color = PurpleAccent.copy(0.7f), fontSize = 11.sp, letterSpacing = 1.sp)
+                                    }
+                                }
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    items(albums, key = { it.albumName }) { album ->
+                                        AlbumPreviewCard(album, onClick = onNavigateToAlbums)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            // Top 3
-            if (topSongs.isNotEmpty()) {
-                item {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        SectionTitle("Top Charts")
-                        TextButton(onClick = onNavigateToTop50) {
-                            Text("See all", color = PurpleAccent.copy(0.7f), fontSize = 11.sp, letterSpacing = 1.sp)
-                        }
-                    }
-                }
-                items(topSongs, key = { it.first.id }) { (song, count) ->
-                    TopChartRow(rank = topSongs.indexOfFirst { it.first.id == song.id } + 1, song = song, playCount = count, onClick = { onSongClick(song) })
-                }
-            }
-
-            // Albums preview
-            if (albums.isNotEmpty()) {
-                item {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        SectionTitle("Albums")
-                        TextButton(onClick = onNavigateToAlbums) {
-                            Text("See all", color = PurpleAccent.copy(0.7f), fontSize = 11.sp, letterSpacing = 1.sp)
-                        }
-                    }
-                }
-                item {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        items(albums, key = { it.albumName }) { album ->
-                            AlbumPreviewCard(album, onClick = onNavigateToAlbums)
-                        }
-                    }
-                }
-            }
-
-            // ── Section divider: rounded pill card ──
+            // ── Library section card (rounded corners) ──
             item {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp)
                         .clip(RoundedCornerShape(20.dp))
                         .background(CardGrey)
-                        .padding(horizontal = 18.dp, vertical = 14.dp),
-                    contentAlignment = Alignment.Center
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.LibraryMusic, null, tint = PurpleAccent.copy(0.7f), modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.LibraryMusic, null, tint = PurpleAccent.copy(0.7f), modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(10.dp))
                         Text(
                             "Your Library",
                             color = TextPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            letterSpacing = 1.sp
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
                         )
                         Spacer(Modifier.weight(1f))
                         Text(
