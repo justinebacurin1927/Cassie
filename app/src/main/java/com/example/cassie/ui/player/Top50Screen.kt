@@ -76,7 +76,7 @@ fun Top50Screen(
                 }
             }
 
-            itemsIndexed(top50) { index, (song, count) ->
+            itemsIndexed(top50, key = { _, pair -> pair.first.id }) { index, (song, count) ->
                 Top50Row(index + 1, song, count, onClick = { playbackManager?.play(song); onSongClick(song) })
             }
         }

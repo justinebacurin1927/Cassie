@@ -83,7 +83,7 @@ fun AlbumScreen(
                 }
             }
 
-            items(albums) { album ->
+            items(albums, key = { it.albumName }) { album ->
                 AlbumCard(album, playbackManager, playlistStore, onSongClick)
             }
         }
@@ -182,7 +182,7 @@ private fun AlbumCard(album: AlbumGroup, playbackManager: PlaybackManager?, play
                                 Text("No playlists yet!", color = TextDim, fontSize = 14.sp)
                             } else {
                                 LazyColumn(Modifier.height(200.dp)) {
-                                    items(playlists) { pl ->
+                                    items(playlists, key = { it.id }) { pl ->
                                         Row(
                                             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable {
                                                 playlistStore.addToPlaylist(pl.id, song.id)

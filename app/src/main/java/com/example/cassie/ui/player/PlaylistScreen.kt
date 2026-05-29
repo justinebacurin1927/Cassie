@@ -79,7 +79,7 @@ fun PlaylistScreen(
                 }
             }
 
-            items(playlists) { playlist ->
+            items(playlists, key = { it.id }) { playlist ->
                 PlaylistCard(
                     playlist = playlist,
                     songs = playlistStore?.getSongsForPlaylist(playlist.id, songs) ?: emptyList(),
@@ -231,7 +231,7 @@ private fun PlaylistCard(
                         Text("No songs match your search", color = TextDim, fontSize = 14.sp)
                     } else {
                         LazyColumn(Modifier.height(300.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            items(filteredAvailable) { song ->
+                            items(filteredAvailable, key = { it.id }) { song ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { onAdd(song.id) }.padding(12.dp),
                                     verticalAlignment = Alignment.CenterVertically

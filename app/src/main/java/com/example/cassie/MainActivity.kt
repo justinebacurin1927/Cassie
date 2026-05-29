@@ -15,8 +15,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -133,11 +136,14 @@ private fun CassieApp() {
 
     val songs = homeViewModel?.uiState?.collectAsState()?.value?.songs ?: emptyList()
 
+    // Shared LazyListState so scroll position survives AnimatedContent destroy/recreate
+    val homeListState = rememberLazyListState()
+
     AnimatedContent(
         targetState = currentScreen,
         transitionSpec = {
-            slideInVertically { it } + fadeIn() togetherWith
-                slideOutVertically { -it } + fadeOut()
+            fadeIn(animationSpec = tween(200)) togetherWith
+                fadeOut(animationSpec = tween(200))
         },
         label = "nav_transition"
     ) { screen ->
@@ -151,6 +157,7 @@ private fun CassieApp() {
                     playbackManager = playbackManager,
                     playlistStore = playlistStore,
                     favoritesStore = favoritesStore,
+                    listState = homeListState,
                     onNavigateToPlayer = { currentScreen = Screen.NowPlaying },
                     onNavigateToAlbums = { currentScreen = Screen.Albums },
                     onNavigateToPlaylists = { currentScreen = Screen.Playlists },

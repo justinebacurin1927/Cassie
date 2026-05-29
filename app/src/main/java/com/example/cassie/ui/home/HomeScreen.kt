@@ -4,8 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -58,6 +60,7 @@ fun HomeScreen(
     onNavigateToAlbums: () -> Unit = {},
     onNavigateToPlaylists: () -> Unit = {},
     onNavigateToTop50: () -> Unit = {},
+    listState: LazyListState = rememberLazyListState(),
 ) {
     val state by viewModel.uiState.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
@@ -121,6 +124,7 @@ fun HomeScreen(
                 onNavigateToAlbums = onNavigateToAlbums,
                 onNavigateToPlaylists = onNavigateToPlaylists,
                 onNavigateToTop50 = onNavigateToTop50,
+                listState = listState,
             )
         }
 
@@ -189,8 +193,10 @@ private fun ContentDashboard(
     onNavigateToAlbums: () -> Unit,
     onNavigateToPlaylists: () -> Unit,
     onNavigateToTop50: () -> Unit,
+    listState: LazyListState,
 ) {
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 80.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -224,7 +230,7 @@ private fun ContentDashboard(
             if (filteredSongs.isEmpty()) {
                 item { Text("No songs match", color = TextDim, fontSize = 14.sp, modifier = Modifier.padding(vertical = 8.dp)) }
             }
-            items(filteredSongs) { song ->
+            items(filteredSongs, key = { it.id }) { song ->
                 SongCard(song = song, onClick = { onSongClick(song) }, playbackManager = playbackManager, playlistStore = playlistStore, favoritesStore = favoritesStore)
             }
         } else {
@@ -233,7 +239,7 @@ private fun ContentDashboard(
                 item { SectionTitle("Recently Played") }
                 item {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        items(recentPlays) { song ->
+                        items(recentPlays, key = { it.id }) { song ->
                             QuickPlayCard(song = song, onClick = { onSongClick(song) })
                         }
                     }
@@ -250,7 +256,7 @@ private fun ContentDashboard(
                         }
                     }
                 }
-                items(topSongs) { (song, count) ->
+                items(topSongs, key = { it.first.id }) { (song, count) ->
                     TopChartRow(rank = topSongs.indexOfFirst { it.first.id == song.id } + 1, song = song, playCount = count, onClick = { onSongClick(song) })
                 }
             }
@@ -267,7 +273,7 @@ private fun ContentDashboard(
                 }
                 item {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        items(albums) { album ->
+                        items(albums, key = { it.albumName }) { album ->
                             AlbumPreviewCard(album, onClick = onNavigateToAlbums)
                         }
                     }
@@ -276,7 +282,7 @@ private fun ContentDashboard(
 
             // All songs
             item { SectionTitle("All Songs") }
-            items(songs) { song ->
+            items(songs, key = { it.id }) { song ->
                 SongCard(song = song, onClick = { onSongClick(song) }, playbackManager = playbackManager, playlistStore = playlistStore, favoritesStore = favoritesStore)
             }
         }
@@ -419,7 +425,7 @@ private fun SongCard(song: Song, onClick: () -> Unit, playbackManager: PlaybackM
                         Text("No playlists yet. Create one first!", color = TextDim, fontSize = 14.sp)
                     } else {
                         LazyColumn(Modifier.height(200.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            items(playlists) { pl ->
+                            items(playlists, key = { it.id }) { pl ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable {
                                         playlistStore.addToPlaylist(pl.id, song.id)
