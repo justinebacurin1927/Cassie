@@ -196,7 +196,7 @@ private fun ContentDashboard(
     listState: LazyListState,
 ) {
     Column(Modifier.fillMaxSize()) {
-        // ── header + search (fixed at top, outside card) ──
+        // ── header + search (fixed at top, PureBlack) ──
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -218,7 +218,8 @@ private fun ContentDashboard(
             SearchBar(searchQuery, onSearchQueryChange)
         }
 
-        // ── everything inside one big rounded card ──
+        // ── scrollable content ──
+        // Rounded card starts at "Your Library" — featured sections are on PureBlack
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -242,43 +243,51 @@ private fun ContentDashboard(
             } else {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
-                    // Featured section
+                    // ── Featured sections (PureBlack background overrides CardGrey) ──
                     if (recentPlays.isNotEmpty() || topSongs.isNotEmpty() || albums.isNotEmpty()) {
                         item {
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 12.dp)) {
-                                if (recentPlays.isNotEmpty()) {
-                                    SectionTitle("Recently Played")
-                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        items(recentPlays, key = { it.id }) { song ->
-                                            QuickPlayCard(song = song, onClick = { onSongClick(song) })
+                            Column(Modifier.fillMaxWidth().background(PureBlack)) {
+                                Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
+                                    // Recent
+                                    if (recentPlays.isNotEmpty()) {
+                                        SectionTitle("Recently Played")
+                                        Spacer(Modifier.height(8.dp))
+                                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            items(recentPlays, key = { it.id }) { song ->
+                                                QuickPlayCard(song = song, onClick = { onSongClick(song) })
+                                            }
                                         }
+                                        Spacer(Modifier.height(16.dp))
                                     }
-                                }
-                                if (topSongs.isNotEmpty()) {
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                        SectionTitle("Top Charts")
-                                        TextButton(onClick = onNavigateToTop50) {
-                                            Text("See all", color = PurpleAccent.copy(0.7f), fontSize = 11.sp, letterSpacing = 1.sp)
+                                    // Top Charts
+                                    if (topSongs.isNotEmpty()) {
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                            SectionTitle("Top Charts")
+                                            TextButton(onClick = onNavigateToTop50) {
+                                                Text("See all", color = PurpleAccent.copy(0.7f), fontSize = 11.sp, letterSpacing = 1.sp)
+                                            }
                                         }
+                                        Column { topSongs.forEachIndexed { idx, (song, count) ->
+                                            TopChartRow(rank = idx + 1, song = song, playCount = count, onClick = { onSongClick(song) })
+                                        }}
+                                        Spacer(Modifier.height(16.dp))
                                     }
-                                    Column { topSongs.forEachIndexed { idx, (song, count) ->
-                                        TopChartRow(rank = idx + 1, song = song, playCount = count, onClick = { onSongClick(song) })
-                                    }}
-                                }
-                                if (albums.isNotEmpty()) {
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                        SectionTitle("Albums")
-                                        TextButton(onClick = onNavigateToAlbums) {
-                                            Text("See all", color = PurpleAccent.copy(0.7f), fontSize = 11.sp, letterSpacing = 1.sp)
+                                    // Albums
+                                    if (albums.isNotEmpty()) {
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                            SectionTitle("Albums")
+                                            TextButton(onClick = onNavigateToAlbums) {
+                                                Text("See all", color = PurpleAccent.copy(0.7f), fontSize = 11.sp, letterSpacing = 1.sp)
+                                            }
                                         }
-                                    }
-                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        items(albums, key = { it.albumName }) { album ->
-                                            AlbumPreviewCard(album, onClick = onNavigateToAlbums)
+                                        Spacer(Modifier.height(8.dp))
+                                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            items(albums, key = { it.albumName }) { album ->
+                                                AlbumPreviewCard(album, onClick = onNavigateToAlbums)
+                                            }
                                         }
                                     }
                                 }
@@ -286,16 +295,10 @@ private fun ContentDashboard(
                         }
                     }
 
-                    // Library header
+                    // ── Library card edge starts here ──
                     item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 12.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(SurfaceGrey)
-                                .padding(horizontal = 16.dp, vertical = 12.dp)
-                        ) {
+                        Column(Modifier.padding(horizontal = 16.dp)) {
+                            Spacer(Modifier.height(8.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.LibraryMusic, null, tint = PurpleAccent.copy(0.7f), modifier = Modifier.size(20.dp))
                                 Spacer(Modifier.width(10.dp))
@@ -303,12 +306,15 @@ private fun ContentDashboard(
                                 Spacer(Modifier.weight(1f))
                                 Text("${songs.size} songs", color = TextDim, fontSize = 12.sp)
                             }
+                            Spacer(Modifier.height(4.dp))
                         }
                     }
 
-                    // Songs
+                    // Songs (inherit CardGrey from parent Box)
                     items(songs, key = { it.id }) { song ->
-                        SongCard(song = song, onClick = { onSongClick(song) }, playbackManager = playbackManager, playlistStore = playlistStore, favoritesStore = favoritesStore)
+                        Box(Modifier.padding(horizontal = 16.dp)) {
+                            SongCard(song = song, onClick = { onSongClick(song) }, playbackManager = playbackManager, playlistStore = playlistStore, favoritesStore = favoritesStore)
+                        }
                     }
                 }
             }
@@ -508,13 +514,12 @@ private fun TopChartRow(rank: Int, song: Song, playCount: Int, onClick: () -> Un
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(Modifier.width(28.dp), contentAlignment = Alignment.Center) {
-            if (rank <= 3) {
-                Icon(
-                    Icons.Default.EmojiEvents,
-                    null,
-                    tint = when (rank) { 1 -> Color(0xFFFFD700); 2 -> Color(0xFFC0C0C0); else -> Color(0xFFCD7F32) },
-                    modifier = Modifier.size(22.dp)
-                )
+            if (rank == 1) {
+                Icon(Icons.Default.MilitaryTech, null, tint = Color(0xFFFFD700), modifier = Modifier.size(22.dp))
+            } else if (rank == 2) {
+                Icon(Icons.Default.MilitaryTech, null, tint = Color(0xFFC0C0C0), modifier = Modifier.size(20.dp))
+            } else if (rank == 3) {
+                Icon(Icons.Default.MilitaryTech, null, tint = Color(0xFFCD7F32), modifier = Modifier.size(18.dp))
             } else {
                 Text("$rank", color = TextDim, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }

@@ -95,13 +95,12 @@ private fun Top50Row(index: Int, song: Song, playCount: Int, onClick: () -> Unit
     ) {
         // rank
         Box(Modifier.width(28.dp), contentAlignment = Alignment.Center) {
-            if (index <= 3) {
-                Icon(
-                    Icons.Default.EmojiEvents,
-                    null,
-                    tint = when (index) { 1 -> Color(0xFFFFD700); 2 -> Color(0xFFC0C0C0); else -> Color(0xFFCD7F32) },
-                    modifier = Modifier.size(24.dp)
-                )
+            if (index == 1) {
+                Icon(Icons.Default.MilitaryTech, null, tint = Color(0xFFFFD700), modifier = Modifier.size(24.dp))
+            } else if (index == 2) {
+                Icon(Icons.Default.MilitaryTech, null, tint = Color(0xFFC0C0C0), modifier = Modifier.size(22.dp))
+            } else if (index == 3) {
+                Icon(Icons.Default.MilitaryTech, null, tint = Color(0xFFCD7F32), modifier = Modifier.size(20.dp))
             } else {
                 Text("$index", color = TextDim, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
