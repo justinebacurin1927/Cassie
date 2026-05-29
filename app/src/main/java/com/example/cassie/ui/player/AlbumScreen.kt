@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,10 +22,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.example.cassie.data.media.FavoritesStore
 import com.example.cassie.data.media.PlaybackManager
 import com.example.cassie.data.media.PlaylistStore
 import com.example.cassie.data.media.Song
+import androidx.compose.ui.platform.LocalContext
 
 // ── Palette ───────────────────────────────────────────────────────
 private val PureBlack     = Color(0xFF000000)
@@ -64,12 +68,12 @@ fun AlbumScreen(
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 24.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 4.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back", tint = TextPrimary) }
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = TextPrimary) }
                     Text("ALBUMS", color = TextDim, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
                     Spacer(Modifier.width(48.dp))
                 }
@@ -94,6 +98,7 @@ fun AlbumScreen(
 private fun AlbumCard(album: AlbumGroup, playbackManager: PlaybackManager?, playlistStore: PlaylistStore?, onSongClick: (Song) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     var showPlaylistPicker by remember { mutableStateOf<Long?>(null) }
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier
@@ -118,7 +123,13 @@ private fun AlbumCard(album: AlbumGroup, playbackManager: PlaybackManager?, play
             ) {
                 val firstSong = album.songs.firstOrNull()
                 if (firstSong?.albumArtUri != null) {
-                    AsyncImage(model = firstSong.albumArtUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    AsyncImage(
+                        model = remember(firstSong.id) {
+                            ImageRequest.Builder(context).data(firstSong.albumArtUri).size(96)
+                                .memoryCachePolicy(CachePolicy.ENABLED).diskCachePolicy(CachePolicy.ENABLED).build()
+                        },
+                        contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop
+                    )
                 } else {
                     Icon(Icons.Default.Album, null, tint = TextDim, modifier = Modifier.size(24.dp))
                 }
@@ -146,9 +157,15 @@ private fun AlbumCard(album: AlbumGroup, playbackManager: PlaybackManager?, play
                         contentAlignment = Alignment.Center
                     ) {
                         if (song.albumArtUri != null) {
-                            AsyncImage(model = song.albumArtUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                            AsyncImage(
+                                model = remember(song.id) {
+                                    ImageRequest.Builder(context).data(song.albumArtUri).size(72)
+                                        .memoryCachePolicy(CachePolicy.ENABLED).diskCachePolicy(CachePolicy.ENABLED).build()
+                                },
+                                contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop
+                            )
                         } else {
-                            Icon(Icons.Default.MusicNote, null, tint = TextDim, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.MusicNote, null, tint = PurpleAccent.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
                         }
                     }
                     Spacer(Modifier.width(10.dp))
@@ -158,7 +175,7 @@ private fun AlbumCard(album: AlbumGroup, playbackManager: PlaybackManager?, play
                         modifier = Modifier.size(28.dp).clip(CircleShape).background(PurpleAccent.copy(0.15f)).clickable { showPlaylistPicker = song.id },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.PlaylistAdd, null, tint = PurpleAccent.copy(0.7f), modifier = Modifier.size(16.dp))
+                        Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null, tint = PurpleAccent.copy(0.7f), modifier = Modifier.size(16.dp))
                     }
                     Spacer(Modifier.width(6.dp))
                     // play
@@ -190,7 +207,7 @@ private fun AlbumCard(album: AlbumGroup, playbackManager: PlaybackManager?, play
                                             }.padding(12.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Icon(Icons.Default.QueueMusic, null, tint = PurpleAccent, modifier = Modifier.size(20.dp))
+                                            Icon(Icons.AutoMirrored.Filled.QueueMusic, null, tint = PurpleAccent, modifier = Modifier.size(20.dp))
                                             Spacer(Modifier.width(10.dp))
                                             Text(pl.name, color = TextPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
                                         }

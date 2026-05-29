@@ -65,4 +65,14 @@ class PersistenceManager(context: Context) {
     fun loadNextId(): Long {
         return prefs.getLong("playlist_next_id", 1L)
     }
+
+    // ── Generic key-value for any additional data (e.g. play counts) ──
+
+    fun getString(key: String, default: String? = null): String? {
+        return prefs.getString(key, default)
+    }
+
+    fun putString(key: String, value: String) {
+        prefs.edit().putString(key, value).apply()
+    }
 }

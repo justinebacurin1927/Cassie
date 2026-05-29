@@ -1,19 +1,21 @@
 package com.example.cassie.data.media
 
 import android.app.Application
-import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.runtime.Stable
-import androidx.core.net.toUri
 import androidx.lifecycle.AndroidViewModel
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.session.MediaSession
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.FutureCallback
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,6 +31,7 @@ data class PlayerState(
     val shuffleMode: Boolean = false,
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
     val sleepTimerRemainingSec: Int = 0,
+    val audioSessionId: Int = -1,
 )
 
 class PlaybackManager(app: Application) : AndroidViewModel(app) {
@@ -36,138 +39,219 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
 
-    val listeningCounter = ListeningCounter()
+    val listeningCounter = ListeningCounter(PersistenceManager(getApplication()))
 
-    private var player: ExoPlayer? = null
-    private var mediaSession: MediaSession? = null
+    private var controller: MediaController? = null
     private var currentSongIndex: Int = -1
 
-    init {
-        initPlayer()
-    }
+    /** Queue of actions that execute once the controller connects. */
+    private val pendingActions = mutableListOf<((MediaController) -> Unit)>()
 
-    private fun initPlayer() {
-        val ctx = getApplication<Application>()
-        player = ExoPlayer.Builder(ctx).build().apply {
-            addListener(object : Player.Listener {
-                override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    _playerState.update { it.copy(isPlaying = isPlaying) }
-                }
-
-                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    val idx = player?.currentMediaItemIndex ?: -1
-                    updateCurrentItem(idx)
-                    val song = _playerState.value.queue.getOrNull(idx)
-                    if (song != null) {
-                        listeningCounter.recordPlay(song.id)
-                    }
-                }
-
-                override fun onPlaybackStateChanged(state: Int) {
-                    if (state == Player.STATE_READY) {
-                        _playerState.update { it.copy(duration = duration) }
-                    }
-                }
-            })
-        }
-    }
-
-    /** Wire up MediaSession so Android shows notification controls. */
-    fun initMediaSession(activity: android.app.Activity) {
-        if (mediaSession != null) return
-        val intent = activity.packageManager?.getLaunchIntentForPackage(activity.packageName)
-        val pi = PendingIntent.getActivity(activity, 0, intent, PendingIntent.FLAG_IMMUTABLE)
-        mediaSession = MediaSession.Builder(activity, player!!)
-            .setSessionActivity(pi)
-            .build()
-    }
-
-    private fun updateCurrentItem(index: Int) {
-        if (index < 0 || index >= _playerState.value.queue.size) return
-        currentSongIndex = index
-        val song = _playerState.value.queue[index]
-        _playerState.update {
-            it.copy(
-                currentSong = song,
-                duration = player?.duration ?: 0,
-                currentPosition = 0,
-            )
-        }
-    }
-
-    /** Return the actual live playback position from ExoPlayer. */
-    fun getCurrentPosition(): Long = player?.currentPosition ?: 0
-
-    /** Return the audio session ID needed for equalizer. */
-    fun getAudioSessionId(): Int = player?.audioSessionId ?: -1
-
-    fun play(song: Song) {
-        val queue = _playerState.value.queue
-        val index = queue.indexOfFirst { it.id == song.id }
-        if (index >= 0) {
-            player?.seekTo(index, 0)
+    /** Execute action immediately if controller is ready, otherwise queue it. */
+    private fun withController(action: (MediaController) -> Unit) {
+        val c = controller
+        if (c != null) {
+            action(c)
         } else {
-            playQueue(listOf(song) + queue, 0)
-        }
-        player?.play()
-    }
-
-    fun playQueue(songs: List<Song>, startIndex: Int = 0) {
-        val mediaItems = songs.map { buildMediaItem(it) }
-
-        player?.apply {
-            setMediaItems(mediaItems, startIndex, 0)
-            prepare()
-            play()
-        }
-
-        _playerState.update {
-            it.copy(queue = songs, shuffleMode = false)
-        }
-        updateCurrentItem(startIndex)
-    }
-
-    fun togglePlayPause() {
-        player?.let {
-            if (it.isPlaying) it.pause() else it.play()
+            pendingActions.add(action)
         }
     }
 
-    fun seekTo(position: Long) {
-        player?.seekTo(position)
-        _playerState.update { it.copy(currentPosition = position) }
-    }
-
-    fun skipToNext() {
-        player?.seekToNextMediaItem()
-    }
-
-    fun skipToPrevious() {
-        player?.seekToPreviousMediaItem()
-    }
-
-    fun toggleShuffle() {
-        player?.apply {
-            shuffleModeEnabled = !shuffleModeEnabled
-            _playerState.update { it.copy(shuffleMode = shuffleModeEnabled) }
-        }
-    }
-
-    fun cycleRepeat() {
-        player?.apply {
-            val next = when (repeatMode) {
-                Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ONE
-                Player.REPEAT_MODE_ONE -> Player.REPEAT_MODE_ALL
-                else -> Player.REPEAT_MODE_OFF
-            }
-            repeatMode = next
-            _playerState.update { it.copy(repeatMode = next) }
-        }
+    private fun flushPendingActions() {
+        val c = controller ?: return
+        val copy = pendingActions.toList()
+        pendingActions.clear()
+        copy.forEach { it(c) }
     }
 
     // ── sleep timer ─────────────────────────────────────────────────
     private var sleepHandler: Handler? = null
     private var sleepRunnable: Runnable? = null
+
+    // ── service + controller initialization ──────────────────────────
+
+    init {
+        val ctx = getApplication<Application>()
+        // Start the foreground service for background playback
+        ctx.startForegroundService(Intent(ctx, CassiePlaybackService::class.java))
+        // Connect to the service's MediaSession asynchronously
+        connectToController(0)
+    }
+
+    private fun connectToController(tryCount: Int = 0) {
+        if (controller != null || tryCount > 5) return
+        val ctx = getApplication<Application>()
+        try {
+            val token = SessionToken(ctx, ComponentName(ctx, CassiePlaybackService::class.java))
+            val future = MediaController.Builder(ctx, token).buildAsync()
+            Futures.addCallback(
+                future,
+                object : FutureCallback<MediaController> {
+                    override fun onSuccess(result: MediaController) {
+                        controller = result
+                        result.addListener(controllerListener)
+                        syncStateFromController(result)
+                        flushPendingActions()
+                    }
+
+                    override fun onFailure(t: Throwable) {
+                        t.printStackTrace()
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            connectToController(tryCount + 1)
+                        }, 500)
+                    }
+                },
+                MoreExecutors.directExecutor()
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Handler(Looper.getMainLooper()).postDelayed({
+                connectToController(tryCount + 1)
+            }, 500)
+        }
+    }
+
+    private val controllerListener = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            _playerState.update { it.copy(isPlaying = isPlaying) }
+        }
+
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            val c = controller ?: return
+            val idx = c.currentMediaItemIndex
+            currentSongIndex = idx
+            val song = _playerState.value.queue.getOrNull(idx)
+            if (idx >= 0) {
+                _playerState.update {
+                    it.copy(
+                        currentSong = song,
+                        duration = c.duration,
+                        currentPosition = 0,
+                    )
+                }
+                if (song != null) {
+                    listeningCounter.recordPlay(song.id)
+                }
+                // Refresh audioSessionId for equalizer
+                val sid = CassiePlaybackService.getPlayer()?.audioSessionId ?: -1
+                if (sid != _playerState.value.audioSessionId) {
+                    _playerState.update { it.copy(audioSessionId = sid) }
+                }
+            }
+        }
+
+        override fun onPlaybackStateChanged(state: Int) {
+            if (state == Player.STATE_READY) {
+                _playerState.update { it.copy(duration = controller?.duration ?: 0) }
+            }
+        }
+
+        override fun onShuffleModeEnabledChanged(enabled: Boolean) {
+            _playerState.update { it.copy(shuffleMode = enabled) }
+        }
+
+        override fun onRepeatModeChanged(mode: Int) {
+            _playerState.update { it.copy(repeatMode = mode) }
+        }
+    }
+
+    private fun syncStateFromController(c: MediaController) {
+        _playerState.update {
+            it.copy(
+                isPlaying = c.isPlaying,
+                duration = c.duration,
+                repeatMode = c.repeatMode,
+                shuffleMode = c.shuffleModeEnabled,
+                currentPosition = c.currentPosition,
+                currentSong = _playerState.value.currentSong,
+            )
+        }
+        val idx = c.currentMediaItemIndex
+        if (idx >= 0 && idx < _playerState.value.queue.size) {
+            currentSongIndex = idx
+            _playerState.update { it.copy(currentSong = _playerState.value.queue[idx]) }
+        }
+        // Grab the audio session ID from the service
+        val sid = CassiePlaybackService.getPlayer()?.audioSessionId ?: -1
+        if (sid != _playerState.value.audioSessionId) {
+            _playerState.update { it.copy(audioSessionId = sid) }
+        }
+    }
+
+    // ── public API ───────────────────────────────────────────────────
+
+    fun getCurrentPosition(): Long = controller?.currentPosition ?: 0
+
+    fun getAudioSessionId(): Int = _playerState.value.audioSessionId
+
+    fun play(song: Song) {
+        val queue = _playerState.value.queue
+        val index = queue.indexOfFirst { it.id == song.id }
+        if (index >= 0) {
+            withController { it.seekTo(index, 0) }
+        } else {
+            playQueue(listOf(song) + queue, 0)
+        }
+        withController { it.play() }
+    }
+
+    fun playQueue(songs: List<Song>, startIndex: Int = 0) {
+        val mediaItems = songs.map { buildMediaItem(it) }
+        withController { c ->
+            c.setMediaItems(mediaItems, startIndex, 0)
+            c.prepare()
+            c.play()
+        }
+        _playerState.update {
+            it.copy(queue = songs, shuffleMode = false)
+        }
+        currentSongIndex = startIndex
+        if (startIndex in songs.indices) {
+            _playerState.update { it.copy(currentSong = songs[startIndex]) }
+        }
+        listeningCounter.recordPlay(songs.getOrNull(startIndex)?.id ?: -1)
+    }
+
+    fun togglePlayPause() {
+        withController {
+            if (it.isPlaying) it.pause() else it.play()
+        }
+    }
+
+    fun seekTo(position: Long) {
+        withController { it.seekTo(position) }
+        _playerState.update { it.copy(currentPosition = position) }
+    }
+
+    fun skipToNext() {
+        withController { it.seekToNextMediaItem() }
+    }
+
+    fun skipToPrevious() {
+        withController { it.seekToPreviousMediaItem() }
+    }
+
+    fun toggleShuffle() {
+        withController { c ->
+            val newState = !c.shuffleModeEnabled
+            c.setShuffleModeEnabled(newState)
+            _playerState.update { it.copy(shuffleMode = newState) }
+        }
+    }
+
+    fun cycleRepeat() {
+        withController { c ->
+            val next = when (c.repeatMode) {
+                Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ONE
+                Player.REPEAT_MODE_ONE -> Player.REPEAT_MODE_ALL
+                else -> Player.REPEAT_MODE_OFF
+            }
+            c.repeatMode = next
+            _playerState.update { it.copy(repeatMode = next) }
+        }
+    }
+
+    // ── sleep timer ─────────────────────────────────────────────────
 
     fun setSleepTimer(minutes: Int) {
         cancelSleepTimer()
@@ -179,7 +263,7 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
             override fun run() {
                 remaining -= 1
                 if (remaining <= 0) {
-                    player?.pause()
+                    withController { it.pause() }
                     _playerState.update { it.copy(sleepTimerRemainingSec = 0) }
                 } else {
                     _playerState.update { it.copy(sleepTimerRemainingSec = remaining) }
@@ -197,13 +281,18 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
     }
 
     // ── queue management ─────────────────────────────────────────────
+
     fun removeFromQueue(index: Int) {
         val old = _playerState.value.queue
         if (index < 0 || index >= old.size) return
         val newQueue = old.toMutableList().apply { removeAt(index) }
-        player?.let { p ->
-            val mediaItems = newQueue.map { buildMediaItem(it) }
-            p.setMediaItems(mediaItems, p.currentMediaItemIndex.coerceAtMost(mediaItems.size - 1).coerceAtLeast(0), 0)
+        val mediaItems = newQueue.map { buildMediaItem(it) }
+        withController { c ->
+            c.setMediaItems(
+                mediaItems,
+                c.currentMediaItemIndex.coerceAtMost(mediaItems.size - 1).coerceAtLeast(0),
+                0
+            )
         }
         _playerState.update { it.copy(queue = newQueue) }
     }
@@ -215,9 +304,13 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
             val item = removeAt(fromIndex)
             add(toIndex, item)
         }
-        player?.let { p ->
-            val mediaItems = newQueue.map { buildMediaItem(it) }
-            p.setMediaItems(mediaItems, p.currentMediaItemIndex.coerceAtMost(mediaItems.size - 1).coerceAtLeast(0), 0)
+        val mediaItems = newQueue.map { buildMediaItem(it) }
+        withController { c ->
+            c.setMediaItems(
+                mediaItems,
+                c.currentMediaItemIndex.coerceAtMost(mediaItems.size - 1).coerceAtLeast(0),
+                0
+            )
         }
         _playerState.update { it.copy(queue = newQueue) }
     }
@@ -239,8 +332,10 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         super.onCleared()
-        mediaSession?.release()
-        player?.release()
-        player = null
+        cancelSleepTimer()
+        controller?.release()
+        controller = null
+        // Note: service is NOT stopped here — it continues playing in background.
+        // Service stops itself via onTaskRemoved when playback ends or user swipes away.
     }
 }

@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,11 +22,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.example.cassie.data.media.FavoritesStore
 import com.example.cassie.data.media.PlaybackManager
 import com.example.cassie.data.media.Playlist
 import com.example.cassie.data.media.PlaylistStore
 import com.example.cassie.data.media.Song
+import androidx.compose.ui.platform.LocalContext
 
 // ── Palette ───────────────────────────────────────────────────────
 private val PureBlack     = Color(0xFF000000)
@@ -60,7 +64,7 @@ fun PlaylistScreen(
         ) {
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back", tint = TextPrimary) }
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = TextPrimary) }
                     Text("PLAYLISTS", color = TextDim, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
                     IconButton(onClick = { showCreateDialog = true }) { Icon(Icons.Default.Add, "Create", tint = TextPrimary) }
                 }
@@ -70,7 +74,7 @@ fun PlaylistScreen(
                 item {
                     Box(Modifier.fillMaxWidth().padding(top = 60.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.QueueMusic, null, tint = TextDim, modifier = Modifier.size(56.dp))
+                            Icon(Icons.AutoMirrored.Filled.QueueMusic, null, tint = TextDim, modifier = Modifier.size(56.dp))
                             Spacer(Modifier.height(12.dp))
                             Text("No playlists yet", color = TextSecondary, fontSize = 16.sp)
                             Text("Tap + to create one!", color = TextDim, fontSize = 13.sp)
@@ -116,6 +120,7 @@ private fun PlaylistCard(
     onAdd: (Long) -> Unit,
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(CardGrey)
@@ -128,7 +133,7 @@ private fun PlaylistCard(
                 modifier = Modifier.size(48.dp).clip(RoundedCornerShape(6.dp)).background(PurpleAccent.copy(0.2f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.QueueMusic, null, tint = PurpleAccent, modifier = Modifier.size(24.dp))
+                Icon(Icons.AutoMirrored.Filled.QueueMusic, null, tint = PurpleAccent, modifier = Modifier.size(24.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -158,9 +163,15 @@ private fun PlaylistCard(
                         contentAlignment = Alignment.Center
                     ) {
                         if (song.albumArtUri != null) {
-                            AsyncImage(model = song.albumArtUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                            AsyncImage(
+                                model = remember(song.id) {
+                                    ImageRequest.Builder(context).data(song.albumArtUri).size(72)
+                                        .memoryCachePolicy(CachePolicy.ENABLED).diskCachePolicy(CachePolicy.ENABLED).build()
+                                },
+                                contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop
+                            )
                         } else {
-                            Icon(Icons.Default.MusicNote, null, tint = TextDim, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.MusicNote, null, tint = PurpleAccent.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
                         }
                     }
                     Spacer(Modifier.width(10.dp))
@@ -241,9 +252,15 @@ private fun PlaylistCard(
                                         contentAlignment = Alignment.Center
                                     ) {
                                         if (song.albumArtUri != null) {
-                                            AsyncImage(model = song.albumArtUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                            AsyncImage(
+                                                model = remember(song.id) {
+                                                    ImageRequest.Builder(context).data(song.albumArtUri).size(72)
+                                                        .memoryCachePolicy(CachePolicy.ENABLED).diskCachePolicy(CachePolicy.ENABLED).build()
+                                                },
+                                                contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop
+                                            )
                                         } else {
-                                            Icon(Icons.Default.MusicNote, null, tint = TextDim, modifier = Modifier.size(18.dp))
+                                            Icon(Icons.Default.MusicNote, null, tint = PurpleAccent.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
                                         }
                                     }
                                     Spacer(Modifier.width(10.dp))

@@ -1,6 +1,8 @@
 package com.example.cassie.ui.player
 
+import android.os.Build
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -10,22 +12,29 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.example.cassie.data.media.PlaybackManager
 
 // ── Palette ───────────────────────────────────────────────────────
-private val DarkGrey    = Color(0xFF1E1E1E)
-private val PureBlack   = Color(0xFF000000)
 private val TextPrimary = Color.White
 private val TextDim     = Color.White.copy(alpha = 0.35f)
+private val PurpleAccent = Color(0xFFBB86FC)
+
+// Glass 15% — translucent white over PureBlack
+private val GlassBg       = Color.White.copy(alpha = 0.15f)
+private val GlassBorder   = Color.White.copy(alpha = 0.20f)
+private val GlassRadius   = 14.dp
 
 @Composable
 fun MiniPlayer(
@@ -35,15 +44,21 @@ fun MiniPlayer(
 ) {
     val state by playbackManager.playerState.collectAsState()
     val song = state.currentSong ?: return
+    val context = LocalContext.current
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(64.dp)
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-            .shadow(8.dp, RoundedCornerShape(12.dp))
-            .clip(RoundedCornerShape(12.dp))
-            .background(DarkGrey)
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(GlassRadius))
+            .background(GlassBg)
+            .then(
+                if (Build.VERSION.SDK_INT >= 31) {
+                    Modifier.blur(radius = 20.dp)
+                } else Modifier
+            )
+            .border(0.5.dp, GlassBorder, RoundedCornerShape(GlassRadius))
             .clickable(onClick = onClick)
     ) {
         Row(
@@ -62,13 +77,16 @@ fun MiniPlayer(
             ) {
                 if (song.albumArtUri != null) {
                     AsyncImage(
-                        model = song.albumArtUri,
+                        model = remember(song.id) {
+                            ImageRequest.Builder(context).data(song.albumArtUri).size(96)
+                                .memoryCachePolicy(CachePolicy.ENABLED).diskCachePolicy(CachePolicy.ENABLED).build()
+                        },
                         contentDescription = "Album Art",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
                     )
                 } else {
-                    Icon(Icons.Default.MusicNote, null, tint = TextDim, modifier = Modifier.size(24.dp))
+                    Icon(Icons.Default.MusicNote, null, tint = PurpleAccent.copy(alpha = 0.5f), modifier = Modifier.size(24.dp))
                 }
             }
 

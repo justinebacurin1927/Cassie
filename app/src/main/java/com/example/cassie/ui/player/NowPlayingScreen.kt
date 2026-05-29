@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,10 +32,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.example.cassie.data.media.EqualizerManager
 import com.example.cassie.data.media.LyricsRepository
 import com.example.cassie.data.media.PlaybackManager
 import com.example.cassie.data.media.Song
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -55,6 +59,7 @@ fun NowPlayingScreen(
     onClose: () -> Unit,
 ) {
     val state by playbackManager.playerState.collectAsState()
+    val context = LocalContext.current
 
     // live position
     var position by remember { mutableLongStateOf(0) }
@@ -240,7 +245,7 @@ fun NowPlayingScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(DarkGrey)
+            .background(PureBlack)
     ) {
         Column(
             modifier = Modifier
@@ -287,7 +292,7 @@ fun NowPlayingScreen(
                     }
                     // queue
                     IconButton(onClick = { showQueue = true }) {
-                        Icon(Icons.Default.QueueMusic, "Queue", tint = TextDim, modifier = Modifier.size(24.dp))
+                        Icon(Icons.AutoMirrored.Filled.QueueMusic, "Queue", tint = TextDim, modifier = Modifier.size(24.dp))
                     }
                 }
             }
@@ -304,7 +309,10 @@ fun NowPlayingScreen(
             ) {
                 if (song != null && song.albumArtUri != null) {
                     AsyncImage(
-                        model = song.albumArtUri,
+                        model = remember(song.id) {
+                            ImageRequest.Builder(context).data(song.albumArtUri).size(560)
+                                .memoryCachePolicy(CachePolicy.ENABLED).diskCachePolicy(CachePolicy.ENABLED).crossfade(true).build()
+                        },
                         contentDescription = "Album Art",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -320,7 +328,7 @@ fun NowPlayingScreen(
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.MusicNote, null, tint = TextDim, modifier = Modifier.size(80.dp))
+                        Icon(Icons.Default.MusicNote, null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(80.dp))
                     }
                 }
             }
@@ -408,36 +416,69 @@ fun NowPlayingScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                ControlButton(
-                    icon = Icons.Default.Shuffle,
-                    active = state.shuffleMode,
-                    onClick = { playbackManager.toggleShuffle() }
-                )
-                ControlCircle(icon = Icons.Default.SkipPrevious, size = 48.dp, onClick = { playbackManager.skipToPrevious() })
-                Box(
-                    modifier = Modifier
-                        .size(72.dp)
-                        .clip(CircleShape)
-                        .background(Color.White)
-                        .clickable { playbackManager.togglePlayPause() },
-                    contentAlignment = Alignment.Center
+                // shuffle with dot indicator
+                Box(contentAlignment = Alignment.Center) {
+                    IconButton(onClick = { playbackManager.toggleShuffle() }) {
+                        Icon(Icons.Default.Shuffle, "Shuffle",
+                            tint = if (state.shuffleMode) PurpleAccent else TextDim,
+                            modifier = Modifier.size(24.dp))
+                    }
+                    if (state.shuffleMode) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 2.dp)
+                                .size(4.dp)
+                                .clip(CircleShape)
+                                .background(PurpleAccent)
+                        )
+                    }
+                }
+                // previous
+                IconButton(onClick = { playbackManager.skipToPrevious() }) {
+                    Icon(Icons.Default.SkipPrevious, "Previous",
+                        tint = TextPrimary, modifier = Modifier.size(28.dp))
+                }
+                // play/pause — no shape, skeleton style
+                IconButton(
+                    onClick = { playbackManager.togglePlayPause() },
+                    modifier = Modifier.size(64.dp)
                 ) {
                     Icon(
-                        if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        if (state.isPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
                         contentDescription = if (state.isPlaying) "Pause" else "Play",
-                        tint = PureBlack,
-                        modifier = Modifier.size(36.dp)
+                        tint = Color.White,
+                        modifier = Modifier.size(52.dp)
                     )
                 }
-                ControlCircle(icon = Icons.Default.SkipNext, size = 48.dp, onClick = { playbackManager.skipToNext() })
-                ControlButton(
-                    icon = when (state.repeatMode) {
-                        Player.REPEAT_MODE_ONE -> Icons.Default.RepeatOne
-                        else -> Icons.Default.Repeat
-                    },
-                    active = state.repeatMode != Player.REPEAT_MODE_OFF,
-                    onClick = { playbackManager.cycleRepeat() }
-                )
+                // next
+                IconButton(onClick = { playbackManager.skipToNext() }) {
+                    Icon(Icons.Default.SkipNext, "Next",
+                        tint = TextPrimary, modifier = Modifier.size(28.dp))
+                }
+                // repeat with dot indicator
+                Box(contentAlignment = Alignment.Center) {
+                    IconButton(onClick = { playbackManager.cycleRepeat() }) {
+                        Icon(
+                            when (state.repeatMode) {
+                                Player.REPEAT_MODE_ONE -> Icons.Default.RepeatOne
+                                else -> Icons.Default.Repeat
+                            },
+                            "Repeat",
+                            tint = if (state.repeatMode != Player.REPEAT_MODE_OFF) PurpleAccent else TextDim,
+                            modifier = Modifier.size(24.dp))
+                    }
+                    if (state.repeatMode != Player.REPEAT_MODE_OFF) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 2.dp)
+                                .size(4.dp)
+                                .clip(CircleShape)
+                                .background(PurpleAccent)
+                        )
+                    }
+                }
             }
 
             Spacer(Modifier.height(20.dp))
@@ -497,34 +538,6 @@ fun NowPlayingScreen(
 
             Spacer(Modifier.height(40.dp))
         }
-    }
-}
-
-@Composable
-private fun ControlButton(icon: androidx.compose.ui.graphics.vector.ImageVector, active: Boolean, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .background(if (active) PurpleAccent.copy(alpha = 0.25f) else TextDim.copy(alpha = 0.1f))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(icon, null, tint = if (active) PurpleAccent else TextDim, modifier = Modifier.size(22.dp))
-    }
-}
-
-@Composable
-private fun ControlCircle(icon: androidx.compose.ui.graphics.vector.ImageVector, size: androidx.compose.ui.unit.Dp, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(TextDim.copy(alpha = 0.1f))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(icon, null, tint = TextSecondary, modifier = Modifier.size(size * 0.5f))
     }
 }
 
