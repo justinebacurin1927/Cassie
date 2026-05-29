@@ -309,27 +309,16 @@ private fun ContentDashboard(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 contentPadding = PaddingValues(bottom = 4.dp)
             ) {
-                // ── Featured sections (no nested LazyRows — use Row+horizontalScroll) ──
-                if (recentPlays.isNotEmpty() || topSongs.isNotEmpty() || albums.isNotEmpty()) {
-                    // Recently Played
-                    if (recentPlays.isNotEmpty()) {
-                        item {
-                            Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
-                                SectionTitle("Recently Played")
-                                Spacer(Modifier.height(10.dp))
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    modifier = Modifier.horizontalScroll(rememberScrollState())
-                                ) {
-                                    recentPlays.forEach { song ->
-                                        QuickPlayCard(song = song, onClick = { onSongClick(song) })
-                                    }
-                                }
-                                Spacer(Modifier.height(16.dp))
-                            }
-                        }
+                // ── Mascot Mood Card (replaces "Recently Played") ──
+                item {
+                    Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
+                        MascotMoodCard(playbackManager = playbackManager)
+                        Spacer(Modifier.height(16.dp))
                     }
+                }
 
+                // ── Featured sections ──
+                if (topSongs.isNotEmpty() || albums.isNotEmpty()) {
                     // Top Charts
                     if (topSongs.isNotEmpty()) {
                         item {
