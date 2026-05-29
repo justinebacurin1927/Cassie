@@ -280,8 +280,36 @@ private fun ContentDashboard(
                 }
             }
 
-            // All songs
-            item { SectionTitle("All Songs") }
+            // ── Section divider: rounded pill card ──
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(CardGrey)
+                        .padding(horizontal = 18.dp, vertical = 14.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.LibraryMusic, null, tint = PurpleAccent.copy(0.7f), modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            "Your Library",
+                            color = TextPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            "${songs.size} songs",
+                            color = TextDim,
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+            }
             items(songs, key = { it.id }) { song ->
                 SongCard(song = song, onClick = { onSongClick(song) }, playbackManager = playbackManager, playlistStore = playlistStore, favoritesStore = favoritesStore)
             }
