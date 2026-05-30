@@ -1,5 +1,8 @@
 package com.example.cassie.data.media
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
@@ -15,6 +18,15 @@ import java.lang.ref.WeakReference
  */
 class CassiePlaybackService : MediaSessionService() {
 
+    companion object {
+        private const val CHANNEL_ID = "cassie_playback"
+        private const val NOTIFICATION_ID = 1
+        private var companionPlayerRef: WeakReference<ExoPlayer>? = null
+
+        /** Access the player for features like the equalizer that need audioSessionId. */
+        fun getPlayer(): ExoPlayer? = companionPlayerRef?.get()
+    }
+
     private var mediaSession: MediaSession? = null
 
     lateinit var player: ExoPlayer
@@ -22,6 +34,35 @@ class CassiePlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+
+        // ── Post foreground notification IMMEDIATELY to avoid ANR on API 35+ ──
+        // The short timeout window on Android 15+ means we must call
+        // startForeground() before Media3 sets up its own notification.
+        val channelId = CHANNEL_ID
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val ch = NotificationChannel(
+                channelId, "Music Playback",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply { setShowBadge(false) }
+            val nm = getSystemService(NotificationManager::class.java)
+            nm?.createNotificationChannel(ch)
+        }
+
+        val pendingIntent = packageManager?.getLaunchIntentForPackage(packageName)?.let {
+            PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE)
+        }
+
+        val notification = Notification.Builder(this, channelId)
+            .setContentTitle("Cassie")
+            .setContentText("Starting playback...")
+            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .build()
+
+        startForeground(NOTIFICATION_ID, notification)
+
+        // ── Now set up ExoPlayer + MediaSession ──
         player = ExoPlayer.Builder(this).build()
         companionPlayerRef = WeakReference(player)
 
@@ -47,12 +88,5 @@ class CassiePlaybackService : MediaSessionService() {
         companionPlayerRef?.clear()
         companionPlayerRef = null
         super.onDestroy()
-    }
-
-    companion object {
-        private var companionPlayerRef: WeakReference<ExoPlayer>? = null
-
-        /** Access the player for features like the equalizer that need audioSessionId. */
-        fun getPlayer(): ExoPlayer? = companionPlayerRef?.get()
     }
 }

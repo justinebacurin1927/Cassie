@@ -3,12 +3,21 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+import java.util.Properties
+
 android {
     namespace = "com.example.cassie"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
         }
+    }
+
+    // Read local.properties for secret keys (file is gitignored)
+    val localProps = Properties()
+    val localFile = rootProject.file("local.properties")
+    if (localFile.exists()) {
+        localFile.inputStream().use { localProps.load(it) }
     }
 
     defaultConfig {
@@ -18,6 +27,10 @@ android {
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Load Last.fm API key from local.properties — never committed to git
+        val lastfmKey = localProps.getProperty("lastfm.api.key") ?: ""
+        buildConfigField("String", "LASTFM_API_KEY", "\"$lastfmKey\"")
     }
 
     buildTypes {
@@ -35,6 +48,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

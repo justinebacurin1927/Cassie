@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -48,11 +49,11 @@ fun PlaylistScreen(
     favoritesStore: FavoritesStore? = null,
     playbackManager: PlaybackManager?,
     onSongClick: (Song) -> Unit,
+    onPlaylistClick: (Playlist) -> Unit = {},
     onBack: () -> Unit,
 ) {
     val playlists by (playlistStore?.playlists?.collectAsState() ?: remember { mutableStateOf(emptyList()) })
     var showCreateDialog by remember { mutableStateOf(false) }
-    var expandedPlaylistId by remember { mutableStateOf<Long?>(null) }
 
     Box(
         modifier = Modifier.fillMaxSize().background(PureBlack)
@@ -86,18 +87,9 @@ fun PlaylistScreen(
             items(playlists, key = { it.id }) { playlist ->
                 PlaylistCard(
                     playlist = playlist,
-                    songs = playlistStore?.getSongsForPlaylist(playlist.id, songs) ?: emptyList(),
-                    allSongs = songs,
-                    isExpanded = expandedPlaylistId == playlist.id,
-                    onToggle = { expandedPlaylistId = if (expandedPlaylistId == playlist.id) null else playlist.id },
+                    songs = songs,
+                    onClick = { onPlaylistClick(playlist) },
                     onDelete = { playlistStore?.delete(playlist.id) },
-                    onSongClick = { song ->
-                        val playlistSongs = playlistStore?.getSongsForPlaylist(playlist.id, songs) ?: emptyList()
-                        playbackManager?.playInContext(song, playlistSongs)
-                        onSongClick(song)
-                    },
-                    onRemove = { songId -> playlistStore?.removeFromPlaylist(playlist.id, songId) },
-                    onAdd = { songId -> playlistStore?.addToPlaylist(playlist.id, songId) },
                 )
             }
         }
@@ -115,172 +107,69 @@ fun PlaylistScreen(
 private fun PlaylistCard(
     playlist: Playlist,
     songs: List<Song>,
-    allSongs: List<Song>,
-    isExpanded: Boolean,
-    onToggle: () -> Unit,
+    onClick: () -> Unit,
     onDelete: () -> Unit,
-    onSongClick: (Song) -> Unit,
-    onRemove: (Long) -> Unit,
-    onAdd: (Long) -> Unit,
 ) {
-    var showAddDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
+    // Get cover art: custom cover > first song's album art > null
+    val coverSong = remember(playlist, songs) {
+        songs.firstOrNull { it.id in playlist.songIds }
+    }
+    val coverUri = playlist.coverUri ?: coverSong?.albumArtUri
+
     Column(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(CardGrey)
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(CardGrey)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().clickable { onToggle() }.padding(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Cover image (from first song's album art, or icon fallback)
             Box(
-                modifier = Modifier.size(48.dp).clip(RoundedCornerShape(6.dp)).background(PurpleAccent.copy(0.2f)),
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(PurpleAccent.copy(0.2f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.AutoMirrored.Filled.QueueMusic, null, tint = PurpleAccent, modifier = Modifier.size(24.dp))
+                if (coverUri != null) {
+                    AsyncImage(
+                        model = remember(playlist.id, coverUri) {
+                            ImageRequest.Builder(context)
+                                .data(coverUri)
+                                .size(96)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .build()
+                        },
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Icon(Icons.AutoMirrored.Filled.QueueMusic, null, tint = PurpleAccent, modifier = Modifier.size(24.dp))
+                }
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(playlist.name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary, maxLines = 1)
+                Spacer(Modifier.height(2.dp))
                 Text("${playlist.songCount} songs", fontSize = 12.sp, color = TextSecondary, maxLines = 1)
             }
+            Spacer(Modifier.width(4.dp))
             IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.Default.Delete, "Delete", tint = TextDim, modifier = Modifier.size(20.dp))
             }
-            Icon(if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, tint = TextDim, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(4.dp))
+            Icon(Icons.Default.ChevronRight, null, tint = TextDim, modifier = Modifier.size(20.dp))
         }
-
-        if (isExpanded) {
-            HorizontalDivider(color = TextDim.copy(alpha = 0.1f))
-
-            if (songs.isEmpty()) {
-                Text("Empty playlist. Tap + below to add songs.", color = TextDim, fontSize = 13.sp, modifier = Modifier.padding(14.dp))
-            }
-
-            songs.forEach { song ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier.size(36.dp).clip(RoundedCornerShape(4.dp)).background(SurfaceGrey),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (song.albumArtUri != null) {
-                            AsyncImage(
-                                model = remember(song.id) {
-                                    ImageRequest.Builder(context).data(song.albumArtUri).size(72)
-                                        .memoryCachePolicy(CachePolicy.ENABLED).diskCachePolicy(CachePolicy.ENABLED).build()
-                                },
-                                contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            Icon(Icons.Default.MusicNote, null, tint = PurpleAccent.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
-                        }
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Text(song.title, color = TextPrimary, fontSize = 14.sp, maxLines = 1, modifier = Modifier.weight(1f))
-                    Text(song.artist, color = TextSecondary, fontSize = 12.sp, maxLines = 1)
-                    Spacer(Modifier.width(8.dp))
-                    // remove
-                    Box(
-                        modifier = Modifier.size(28.dp).clip(CircleShape).background(Color.Red.copy(0.15f)).clickable { onRemove(song.id) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.RemoveCircleOutline, "Remove", tint = Color.Red.copy(0.6f), modifier = Modifier.size(16.dp))
-                    }
-                }
-            }
-
-            // Add songs button
-            Spacer(Modifier.height(4.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth().clickable { showAddDialog = true }.padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.AddCircleOutline, null, tint = PurpleAccent.copy(0.7f), modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Add Songs from Library", color = PurpleAccent.copy(0.7f), fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            }
-            Spacer(Modifier.height(4.dp))
-        }
-    }
-
-    // Add song dialog
-    if (showAddDialog) {
-        val existingIds = songs.map { it.id }.toSet()
-        val allAvailable = allSongs.filter { it.id !in existingIds }
-        var addSearch by remember { mutableStateOf("") }
-        val filteredAvailable = remember(allAvailable, addSearch) {
-            if (addSearch.isBlank()) allAvailable
-            else allAvailable.filter {
-                it.title.contains(addSearch, ignoreCase = true) ||
-                it.artist.contains(addSearch, ignoreCase = true)
-            }
-        }
-
-        AlertDialog(
-            onDismissRequest = { showAddDialog = false },
-            containerColor = CardGrey,
-            title = { Text("Add Songs", color = TextPrimary, fontWeight = FontWeight.Bold) },
-            text = {
-                Column {
-                    // search
-                    OutlinedTextField(
-                        value = addSearch,
-                        onValueChange = { addSearch = it },
-                        placeholder = { Text("Search songs...", color = TextDim, fontSize = 14.sp) },
-                        singleLine = true,
-                        leadingIcon = { Icon(Icons.Default.Search, null, tint = TextDim, modifier = Modifier.size(20.dp)) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary,
-                            focusedBorderColor = PurpleAccent, cursorColor = PurpleAccent,
-                            unfocusedBorderColor = Color.Transparent,
-                        ),
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                    )
-
-                    if (allAvailable.isEmpty()) {
-                        Text("All songs are already in this playlist!", color = TextDim, fontSize = 14.sp)
-                    } else if (filteredAvailable.isEmpty() && addSearch.isNotBlank()) {
-                        Text("No songs match your search", color = TextDim, fontSize = 14.sp)
-                    } else {
-                        LazyColumn(Modifier.height(300.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            items(filteredAvailable, key = { it.id }) { song ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { onAdd(song.id) }.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier.size(36.dp).clip(RoundedCornerShape(4.dp)).background(SurfaceGrey),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (song.albumArtUri != null) {
-                                            AsyncImage(
-                                                model = remember(song.id) {
-                                                    ImageRequest.Builder(context).data(song.albumArtUri).size(72)
-                                                        .memoryCachePolicy(CachePolicy.ENABLED).diskCachePolicy(CachePolicy.ENABLED).build()
-                                                },
-                                                contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop
-                                            )
-                                        } else {
-                                            Icon(Icons.Default.MusicNote, null, tint = PurpleAccent.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
-                                        }
-                                    }
-                                    Spacer(Modifier.width(10.dp))
-                                    Column(Modifier.weight(1f)) {
-                                        Text(song.title, color = TextPrimary, fontSize = 14.sp, maxLines = 1)
-                                        Text(song.artist, color = TextSecondary, fontSize = 12.sp, maxLines = 1)
-                                    }
-                                    Icon(Icons.Default.Add, null, tint = PurpleAccent, modifier = Modifier.size(20.dp))
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { showAddDialog = false }) { Text("Done", color = PurpleAccent) } }
-        )
     }
 }
 
@@ -297,7 +186,10 @@ private fun CreatePlaylistDialog(onDismiss: () -> Unit, onCreate: (String) -> Un
                 onValueChange = { name = it },
                 placeholder = { Text("Playlist name", color = TextDim) },
                 singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary, focusedBorderColor = PurpleAccent, cursorColor = PurpleAccent)
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary,
+                    focusedBorderColor = PurpleAccent, cursorColor = PurpleAccent
+                )
             )
         },
         confirmButton = { TextButton(onClick = { if (name.isNotBlank()) onCreate(name.trim()) }) { Text("Create", color = PurpleAccent) } },

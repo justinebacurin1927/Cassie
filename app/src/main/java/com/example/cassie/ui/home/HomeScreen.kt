@@ -38,6 +38,7 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.example.cassie.data.media.FavoritesStore
 import com.example.cassie.data.media.PlaybackManager
+import com.example.cassie.data.media.Playlist
 import com.example.cassie.data.media.PlaylistStore
 import com.example.cassie.data.media.Song
 
@@ -80,6 +81,7 @@ fun HomeScreen(
     onNavigateToAlbums: () -> Unit = {},
     onNavigateToArtists: () -> Unit = {},
     onNavigateToPlaylists: () -> Unit = {},
+    onPlaylistClick: (Playlist) -> Unit = {},
     onNavigateToTop50: () -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
 ) {
@@ -127,13 +129,9 @@ fun HomeScreen(
         listeningCounter?.getTop50(state.songs)?.take(3) ?: emptyList()
     }
 
-    val albums = remember(state.songs) {
-        state.songs.groupBy { it.album }.entries
-            .sortedByDescending { (_, songs) -> songs.size }
-            .take(6)
-            .map { (albumName, songs) ->
-                AlbumPreview(albumName = albumName, artist = songs.first().artist, songCount = songs.size)
-            }
+    // ── Playlists preview for home (horizontal scroll) ──
+    val playlistPreviews = remember(playlistStore?.playlists?.value) {
+        (playlistStore?.playlists?.value ?: emptyList()).take(6)
     }
 
     // ── "Your Vibe" listening stats ────────────────────────────────────
@@ -196,16 +194,16 @@ fun HomeScreen(
                 onSortOptionChange = { sortOption = it },
                 recentPlays = recentPlays,
                 topSongs = topSongs,
-                albums = albums,
+                playlistPreviews = playlistPreviews,
                 vibeStats = vibeStats,
                 isEmpty = state.songs.isEmpty(),
                 onSongClick = handleSongClick,
                 playbackManager = playbackManager,
                 playlistStore = playlistStore,
                 favoritesStore = favoritesStore,
-                onNavigateToAlbums = onNavigateToAlbums,
-                onNavigateToArtists = onNavigateToArtists,
                 onNavigateToPlaylists = onNavigateToPlaylists,
+                onPlaylistClick = onPlaylistClick,
+                onNavigateToArtists = onNavigateToArtists,
                 onNavigateToTop50 = onNavigateToTop50,
                 listState = listState,
             )
@@ -215,7 +213,6 @@ fun HomeScreen(
     }
 }
 
-data class AlbumPreview(val albumName: String, val artist: String, val songCount: Int)
 data class VibeStats(val totalPlays: Int, val uniqueSongs: Int, val topArtist: String, val totalMinutes: Int = 0)
 
 // ── Loading ───────────────────────────────────────────────────────
@@ -251,16 +248,16 @@ private fun ContentDashboard(
     onSortOptionChange: (SortOption) -> Unit,
     recentPlays: List<Song>,
     topSongs: List<Pair<Song, Int>>,
-    albums: List<AlbumPreview>,
+    playlistPreviews: List<Playlist>,
     vibeStats: VibeStats,
     isEmpty: Boolean,
     onSongClick: (Song) -> Unit,
     playbackManager: PlaybackManager?,
     playlistStore: PlaylistStore?,
     favoritesStore: FavoritesStore?,
-    onNavigateToAlbums: () -> Unit,
-    onNavigateToArtists: () -> Unit,
     onNavigateToPlaylists: () -> Unit,
+    onPlaylistClick: (Playlist) -> Unit = {},
+    onNavigateToArtists: () -> Unit,
     onNavigateToTop50: () -> Unit,
     listState: LazyListState,
 ) {
@@ -309,16 +306,16 @@ private fun ContentDashboard(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 contentPadding = PaddingValues(bottom = 4.dp)
             ) {
-                // ── Mascot Mood Card (replaces "Recently Played") ──
+                // ── Mascot Mood Card (scrolls with content) ──
                 item {
                     Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
                         MascotMoodCard(playbackManager = playbackManager)
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.height(12.dp))
                     }
                 }
 
                 // ── Featured sections ──
-                if (topSongs.isNotEmpty() || albums.isNotEmpty()) {
+                if (topSongs.isNotEmpty() || playlistPreviews.isNotEmpty()) {
                     // Top Charts
                     if (topSongs.isNotEmpty()) {
                         item {
@@ -337,13 +334,13 @@ private fun ContentDashboard(
                         }
                     }
 
-                    // Albums
-                    if (albums.isNotEmpty()) {
+                    // Playlists (replaces old Albums row)
+                    if (playlistPreviews.isNotEmpty()) {
                         item {
-                            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)) {
+                            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    SectionTitle("Albums")
-                                    TextButton(onClick = onNavigateToAlbums) {
+                                    SectionTitle("Playlists")
+                                    TextButton(onClick = onNavigateToPlaylists) {
                                         Text("See all", color = PurpleAccent.copy(0.7f), fontSize = 11.sp, letterSpacing = 1.sp)
                                     }
                                 }
@@ -352,8 +349,14 @@ private fun ContentDashboard(
                                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     modifier = Modifier.horizontalScroll(rememberScrollState())
                                 ) {
-                                    albums.forEach { album ->
-                                        AlbumPreviewCard(album, onClick = onNavigateToAlbums)
+                                    playlistPreviews.forEach { playlist ->
+                                        val coverSong = songs.firstOrNull { it.id in playlist.songIds }
+                                        PlaylistPreviewCard(
+                                            playlist = playlist,
+                                            coverSong = coverSong,
+                                            onClick = onNavigateToPlaylists,
+                                            onPlayClick = { onPlaylistClick(playlist) },
+                                        )
                                     }
                                 }
                             }
@@ -674,24 +677,71 @@ private fun TopChartRow(rank: Int, song: Song, playCount: Int, onClick: () -> Un
     }
 }
 
-// ── Album Preview Card ───────────────────────────────────────────
+// ── Playlist Preview Card (horizontal home row) ──────────────────
 @Composable
-private fun AlbumPreviewCard(album: AlbumPreview, onClick: () -> Unit = {}) {
+private fun PlaylistPreviewCard(
+    playlist: Playlist,
+    coverSong: Song?,
+    onClick: () -> Unit = {},
+    onPlayClick: () -> Unit = {},
+) {
+    val context = LocalContext.current
+    // Use custom cover if set, else first song's album art
+    val coverUri = playlist.coverUri ?: coverSong?.albumArtUri
+
     Box(
         modifier = Modifier
             .width(130.dp)
+            .height(160.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(CardGrey)
             .clickable(onClick = onClick),
-        contentAlignment = Alignment.BottomStart
     ) {
-        Column(Modifier.padding(12.dp).fillMaxSize(), verticalArrangement = Arrangement.Center) {
-            Icon(Icons.Default.Album, null, tint = PurpleAccent.copy(0.7f), modifier = Modifier.size(32.dp))
-            Spacer(Modifier.height(10.dp))
-            Text(album.albumName, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-            Spacer(Modifier.height(2.dp))
-            Text("${album.songCount} tracks · ${album.artist}", color = TextDim, fontSize = 10.sp, maxLines = 1)
+        // Full image background
+        if (coverUri != null) {
+            AsyncImage(
+                model = remember(playlist.id, coverUri) {
+                    ImageRequest.Builder(context).data(coverUri).size(280)
+                        .memoryCachePolicy(CachePolicy.ENABLED).diskCachePolicy(CachePolicy.ENABLED).build()
+                },
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Box(Modifier.fillMaxSize().background(PurpleAccent.copy(0.15f)), contentAlignment = Alignment.Center) {
+                Icon(Icons.AutoMirrored.Filled.QueueMusic, null, tint = PurpleAccent.copy(0.5f), modifier = Modifier.size(40.dp))
+            }
         }
+
+        // Subtle grey overlay (5% opacity) covering the entire image
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.05f)))
+
+        // Small play button in bottom-right corner
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(Color.White)
+                .align(Alignment.BottomEnd)
+                .padding(3.dp)
+                .clickable(onClick = onPlayClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.PlayArrow, "Play", tint = Color.Black, modifier = Modifier.size(14.dp))
+        }
+
+        // Floating playlist name at bottom-left (no background bar)
+        Text(
+            text = playlist.name,
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 2,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 8.dp, bottom = 8.dp, end = 40.dp),
+        )
     }
 }
 

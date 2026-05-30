@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -24,8 +25,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import android.os.Build
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -255,6 +258,20 @@ fun NowPlayingScreen(
         )
     }
 
+    // ── Glassmorphism background gradient (very dark purple → black) ─
+    val glassGradient = remember {
+        Brush.verticalGradient(
+            colors = listOf(
+                Color(0xFF0F0020), // deep purple-black
+                Color(0xFF080010),
+                PureBlack,
+                PureBlack,
+            ),
+            startY = 0f,
+            endY   = 1200f,
+        )
+    }
+
     // ── root — entrance transform applied here ──────────────────────
     Box(
         modifier = Modifier
@@ -263,8 +280,22 @@ fun NowPlayingScreen(
                 translationY = offsetY.value.dp.toPx()
                 this.alpha   = alpha.value
             }
-            .background(PureBlack)
+            .background(glassGradient)
     ) {
+        // Frosted glass overlay (subtle semi-transparent layer + blur on 31+)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.White.copy(alpha = 0.03f))
+                .graphicsLayer {
+                    if (Build.VERSION.SDK_INT >= 31) {
+                        renderEffect = android.graphics.RenderEffect
+                            .createBlurEffect(12f, 12f, android.graphics.Shader.TileMode.CLAMP)
+                            .asComposeRenderEffect()
+                    }
+                }
+        )
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -328,7 +359,8 @@ fun NowPlayingScreen(
                     modifier = Modifier
                         .size(280.dp)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(CardGrey),
+                        .background(CardGrey)
+                        .border(0.5.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(16.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
                     val currentSong = song

@@ -33,6 +33,7 @@ class PersistenceManager(context: Context) {
             val songIds = JSONArray()
             p.songIds.forEach { songIds.put(it) }
             obj.put("songIds", songIds)
+            if (p.coverUri != null) obj.put("coverUri", p.coverUri)
             json.put(obj)
         }
         prefs.edit().putString("playlists", json.toString()).apply()
@@ -50,7 +51,8 @@ class PersistenceManager(context: Context) {
                 Playlist(
                     id = obj.getLong("id"),
                     name = obj.getString("name"),
-                    songIds = songIds
+                    songIds = songIds.toList(), // immutable copy
+                    coverUri = obj.optString("coverUri", "").takeIf { it.isNotBlank() },
                 )
             }
         } catch (e: Exception) {

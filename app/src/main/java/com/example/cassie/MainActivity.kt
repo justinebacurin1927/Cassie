@@ -7,12 +7,14 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
         import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -54,6 +56,7 @@ import com.example.cassie.data.media.EqualizerManager
 import com.example.cassie.data.media.FavoritesStore
 import com.example.cassie.data.media.PersistenceManager
 import com.example.cassie.data.media.PlaybackManager
+import com.example.cassie.data.media.Playlist
 import com.example.cassie.data.media.PlaylistStore
 import com.example.cassie.ui.home.HomeScreen
 import com.example.cassie.ui.player.AlbumDetailScreen
@@ -61,6 +64,7 @@ import com.example.cassie.ui.player.AlbumScreen
 import com.example.cassie.ui.player.ArtistScreen
 import com.example.cassie.ui.player.MiniPlayer
 import com.example.cassie.ui.player.NowPlayingScreen
+import com.example.cassie.ui.player.PlaylistDetailScreen
 import com.example.cassie.ui.player.PlaylistScreen
 import com.example.cassie.ui.player.Top50Screen
 import com.example.cassie.ui.theme.CassieTheme
@@ -72,16 +76,23 @@ sealed class Screen {
     data object Albums : Screen()
     data class AlbumDetail(val albumName: String) : Screen()
     data object Playlists : Screen()
+    data class PlaylistDetail(val playlist: Playlist) : Screen()
     data object Top50 : Screen()
 }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(0xFF1A1A1A.toInt()),
-            navigationBarStyle = SystemBarStyle.dark(0xFF1A1A1A.toInt()),
-        )
+        enableEdgeToEdge()
+        // Make system bars clearly visible with a solid background
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false   // light icons on dark bg
+            isAppearanceLightNavigationBars = false
+        }
+        @Suppress("DEPRECATION")
+        window.statusBarColor = android.graphics.Color.parseColor("#2A2A2A")
+        @Suppress("DEPRECATION")
+        window.navigationBarColor = android.graphics.Color.parseColor("#2A2A2A")
         // notification channel for media playback
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val ch = NotificationChannel(
@@ -218,6 +229,7 @@ private fun CassieApp() {
                             onNavigateToAlbums = { currentScreen = Screen.Albums },
                             onNavigateToArtists = { currentScreen = Screen.Artists },
                             onNavigateToPlaylists = { currentScreen = Screen.Playlists },
+                            onPlaylistClick = { playlist -> currentScreen = Screen.PlaylistDetail(playlist) },
                             onNavigateToTop50 = { currentScreen = Screen.Top50 },
                         )
                     }
@@ -251,7 +263,7 @@ private fun CassieApp() {
                     }
                     is Screen.AlbumDetail -> {
                         AlbumDetailScreen(
-                            albumName = (currentScreen as Screen.AlbumDetail).albumName,
+                            albumName = screen.albumName,
                             songs = songs,
                             playbackManager = playbackManager,
                             playlistStore = playlistStore,
@@ -266,6 +278,19 @@ private fun CassieApp() {
                             playlistStore = playlistStore,
                             favoritesStore = favoritesStore,
                             playbackManager = playbackManager,
+                            onSongClick = { currentScreen = Screen.NowPlaying },
+                            onPlaylistClick = { playlist -> currentScreen = Screen.PlaylistDetail(playlist) },
+                            onBack = { currentScreen = Screen.Home },
+                        )
+                    }
+                    is Screen.PlaylistDetail -> {
+                        val pl = screen.playlist
+                        PlaylistDetailScreen(
+                            playlist = pl,
+                            allSongs = songs,
+                            playbackManager = playbackManager,
+                            playlistStore = playlistStore,
+                            favoritesStore = favoritesStore,
                             onSongClick = { currentScreen = Screen.NowPlaying },
                             onBack = { currentScreen = Screen.Home },
                         )
@@ -311,7 +336,7 @@ private fun CassieApp() {
                     Screen.Home -> "home"
                     Screen.Albums -> "albums"
                     Screen.Artists -> "artists"
-                    Screen.Playlists -> "playlists"
+                    Screen.Playlists, is Screen.PlaylistDetail -> "playlists"
                     Screen.Top50 -> "top50"
                     else -> "home"
                 }

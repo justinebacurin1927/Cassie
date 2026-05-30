@@ -112,7 +112,7 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
                 duration = json.getLong("duration"),
                 dateAdded = json.getLong("dateAdded"),
                 mimeType = json.getString("mimeType"),
-                albumArtUri = json.optString("albumArtUri", null)?.ifEmpty { null },
+                albumArtUri = json.optString("albumArtUri", "").ifEmpty { null },
             )
             _playerState.update { it.copy(currentSong = song) }
         } catch (_: Exception) {}
