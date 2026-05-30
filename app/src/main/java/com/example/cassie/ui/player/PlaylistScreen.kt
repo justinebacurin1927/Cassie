@@ -30,17 +30,17 @@ import com.example.cassie.data.media.PlaybackManager
 import com.example.cassie.data.media.Playlist
 import com.example.cassie.data.media.PlaylistStore
 import com.example.cassie.data.media.Song
-import androidx.compose.ui.platform.LocalContext
+import com.example.cassie.ui.theme.CassieColors
+import com.example.cassie.ui.theme.CassieDialog
 
-// ── Palette ───────────────────────────────────────────────────────
-private val PureBlack     = Color(0xFF000000)
-private val DarkGrey      = Color(0xFF121212)
-private val CardGrey      = Color(0xFF1E1E1E)
-private val SurfaceGrey   = Color(0xFF282828)
-private val PurpleAccent  = Color(0xFFBB86FC)
-private val TextPrimary   = Color.White
-private val TextSecondary = Color.White.copy(alpha = 0.6f)
-private val TextDim       = Color.White.copy(alpha = 0.35f)
+// ── Theme Tokens ──
+private val PureBlack     = CassieColors.PureBlack
+private val CardGrey      = CassieColors.CardGrey
+private val SurfaceGrey   = CassieColors.SurfaceGrey
+private val PurpleAccent  = CassieColors.PurpleAccent
+private val TextPrimary   = CassieColors.TextPrimary
+private val TextSecondary = CassieColors.TextSecondary
+private val TextDim       = CassieColors.TextDim
 
 @Composable
 fun PlaylistScreen(
@@ -176,11 +176,10 @@ private fun PlaylistCard(
 @Composable
 private fun CreatePlaylistDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
     var name by remember { mutableStateOf("") }
-    AlertDialog(
+    CassieDialog(
         onDismissRequest = onDismiss,
-        containerColor = CardGrey,
-        title = { Text("New Playlist", color = TextPrimary, fontWeight = FontWeight.Bold) },
-        text = {
+        dialogTitle = { Text("New Playlist", color = TextPrimary, fontWeight = FontWeight.Bold) },
+        dialogText = {
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
@@ -192,7 +191,7 @@ private fun CreatePlaylistDialog(onDismiss: () -> Unit, onCreate: (String) -> Un
                 )
             )
         },
-        confirmButton = { TextButton(onClick = { if (name.isNotBlank()) onCreate(name.trim()) }) { Text("Create", color = PurpleAccent) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = TextDim) } }
+        dialogConfirmButton = { TextButton(onClick = { if (name.isNotBlank()) onCreate(name.trim()) }) { Text("Create", color = PurpleAccent) } },
+        dialogDismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = TextDim) } }
     )
 }

@@ -32,6 +32,7 @@ data class PlayerState(
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
     val sleepTimerRemainingSec: Int = 0,
     val audioSessionId: Int = -1,
+    val partyMode: Boolean = false,
 )
 
 class PlaybackManager(app: Application) : AndroidViewModel(app) {
@@ -325,6 +326,22 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
         sleepHandler = null
         sleepRunnable = null
         _playerState.update { it.copy(sleepTimerRemainingSec = 0) }
+    }
+
+    // ── party mode ────────────────────────────────────────────────────
+    fun togglePartyMode() {
+        val newState = !_playerState.value.partyMode
+        _playerState.update { it.copy(partyMode = newState) }
+        if (newState) {
+            // PARTY HARD: shuffle + repeat all + max energy
+            withController { c ->
+                c.setShuffleModeEnabled(true)
+                c.repeatMode = Player.REPEAT_MODE_ALL
+            }
+            _playerState.update {
+                it.copy(shuffleMode = true, repeatMode = Player.REPEAT_MODE_ALL)
+            }
+        }
     }
 
     // ── queue management ─────────────────────────────────────────────

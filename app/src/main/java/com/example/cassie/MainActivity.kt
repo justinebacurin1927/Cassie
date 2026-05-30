@@ -68,6 +68,7 @@ import com.example.cassie.ui.player.PlaylistDetailScreen
 import com.example.cassie.ui.player.PlaylistScreen
 import com.example.cassie.ui.player.Top50Screen
 import com.example.cassie.ui.theme.CassieTheme
+import com.example.cassie.ui.theme.CassieColors
 
 sealed class Screen {
     data object Home : Screen()
@@ -84,15 +85,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        // Make system bars clearly visible with a solid background
         WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = false   // light icons on dark bg
+            isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
         }
-        @Suppress("DEPRECATION")
-        window.statusBarColor = android.graphics.Color.parseColor("#2A2A2A")
-        @Suppress("DEPRECATION")
-        window.navigationBarColor = android.graphics.Color.parseColor("#2A2A2A")
         // notification channel for media playback
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val ch = NotificationChannel(
@@ -111,12 +107,12 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// ── Nav bar palette ──────────────────────────────────────────────
-private val CardGrey     = Color(0xFF1E1E1E)
-private val SurfaceGrey  = Color(0xFF282828)
-private val PurpleAccent = Color(0xFFBB86FC)
-private val TextPrimary  = Color.White
-private val TextDim      = Color.White.copy(alpha = 0.35f)
+// ── Theme Tokens ──────────────────────────────────────────────────
+private val CardGrey     = CassieColors.CardGrey
+private val SurfaceGrey  = CassieColors.SurfaceGrey
+private val PurpleAccent = CassieColors.PurpleAccent
+private val TextPrimary  = CassieColors.TextPrimary
+private val TextDim      = CassieColors.TextDim
 
 @Composable
 private fun CassieApp() {
@@ -190,6 +186,7 @@ private fun CassieApp() {
 
     // ── nav bar / mini player visibility ────────────────────────────
     val showNavBar = currentScreen !is Screen.NowPlaying
+
     val playerState = playbackManager.playerState.collectAsState()
     val showMiniPlayer = showNavBar && playerState.value.currentSong != null
 
@@ -344,7 +341,7 @@ private fun CassieApp() {
                     activeItem = activeId,
                     isPlaying = playerState.value.isPlaying,
                     onItemSelected = { id ->
-                        currentScreen = when (id) {
+                        val tabScreen: Screen = when (id) {
                             "home" -> Screen.Home
                             "albums" -> Screen.Albums
                             "artists" -> Screen.Artists
@@ -352,6 +349,7 @@ private fun CassieApp() {
                             "top50" -> Screen.Top50
                             else -> Screen.Home
                         }
+                        currentScreen = tabScreen
                     },
 
                 )

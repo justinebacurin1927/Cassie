@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,10 +26,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import android.os.Build
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -45,20 +49,29 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.example.cassie.data.media.EqualizerManager
 import com.example.cassie.data.media.LyricsRepository
+import com.example.cassie.data.media.PersistenceManager
 import com.example.cassie.data.media.PlaybackManager
 import com.example.cassie.data.media.Song
+import com.example.cassie.data.media.AlbumArtColorExtractor
+import com.example.cassie.data.media.AlbumArtColors
+import com.example.cassie.data.media.TimedLyricLine
+import com.example.cassie.data.media.parseLrc
+import com.example.cassie.ui.theme.CassieColors
+import com.example.cassie.ui.theme.CassieDialog
+import com.example.cassie.ui.theme.CassieSpacing
+import com.example.cassie.ui.theme.CassieTypography
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-// ── Palette ────────────────────────────────────────────────────────
-private val PureBlack     = Color(0xFF000000)
-private val DarkGrey      = Color(0xFF121212)
-private val CardGrey      = Color(0xFF1E1E1E)
-private val SurfaceGrey   = Color(0xFF282828)
-private val PurpleAccent  = Color(0xFFBB86FC)
-private val TextPrimary   = Color.White
-private val TextSecondary = Color.White.copy(alpha = 0.6f)
-private val TextDim       = Color.White.copy(alpha = 0.35f)
+// ── Palette (legacy alias — will migrate fully) ────────────────────
+private val PureBlack     = CassieColors.PureBlack
+private val DarkGrey      = CassieColors.DarkGrey
+private val CardGrey      = CassieColors.CardGrey
+private val SurfaceGrey   = CassieColors.SurfaceGrey
+private val PurpleAccent  = CassieColors.PurpleAccent
+private val TextPrimary   = CassieColors.TextPrimary
+private val TextSecondary = CassieColors.TextSecondary
+private val TextDim       = CassieColors.TextDim
 
 @Composable
 fun NowPlayingScreen(
@@ -107,6 +120,13 @@ fun NowPlayingScreen(
     val duration = state.duration.coerceAtLeast(1L)
     val song     = state.currentSong
 
+    // ── dynamic album art colors ──
+    var albumColors by remember(song?.albumId) { mutableStateOf(AlbumArtColors()) }
+    LaunchedEffect(song?.albumId, song?.albumArtUri) {
+        albumColors = AlbumArtColorExtractor.extract(context, song?.albumArtUri, song?.albumId ?: -1L)
+    }
+    val accentColor by remember { derivedStateOf { albumColors.accent } }
+
     // ── attach equalizer when a song is playing ──
     LaunchedEffect(state.currentSong) {
         if (state.currentSong != null) {
@@ -118,19 +138,17 @@ fun NowPlayingScreen(
     // ── lyrics state ────────────────────────────────────────────────
     var showLyrics    by remember { mutableStateOf(false) }
     var lyricsText    by remember { mutableStateOf<String?>(null) }
+    var syncedLines   by remember { mutableStateOf<List<TimedLyricLine>>(emptyList()) }
     var loadingLyrics by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     // ── queue dialog ────────────────────────────────────────────────
     var showQueue by remember { mutableStateOf(false) }
     if (showQueue) {
-        AlertDialog(
+        CassieDialog(
             onDismissRequest = { showQueue = false },
-            containerColor   = CardGrey,
-            titleContentColor = TextPrimary,
-            textContentColor  = TextSecondary,
-            title = { Text("Up Next", fontWeight = FontWeight.Bold, color = TextPrimary) },
-            text  = {
+            dialogTitle = { Text("Up Next", fontWeight = FontWeight.Bold, color = TextPrimary) },
+            dialogText  = {
                 val q = state.queue
                 if (q.isEmpty()) {
                     Text("Queue is empty", color = TextDim, modifier = Modifier.padding(vertical = 16.dp))
@@ -160,7 +178,7 @@ fun NowPlayingScreen(
                     }
                 }
             },
-            confirmButton = {
+            dialogConfirmButton = {
                 TextButton(onClick = { showQueue = false }) { Text("Close", color = PurpleAccent) }
             }
         )
@@ -176,13 +194,10 @@ fun NowPlayingScreen(
     var bassBoostOn    by remember { mutableStateOf(equalizerManager?.isBassBoostEnabled ?: false) }
 
     if (showSleepPicker) {
-        AlertDialog(
-            onDismissRequest  = { showSleepPicker = false },
-            containerColor    = CardGrey,
-            titleContentColor = TextPrimary,
-            textContentColor  = TextSecondary,
-            title = { Text("Sleep Timer", fontWeight = FontWeight.Bold, color = TextPrimary) },
-            text  = {
+        CassieDialog(
+            onDismissRequest = { showSleepPicker = false },
+            dialogTitle = { Text("Sleep Timer", fontWeight = FontWeight.Bold, color = TextPrimary) },
+            dialogText  = {
                 Column {
                     listOf(15, 30, 45, 60).forEach { mins ->
                         TextButton(
@@ -203,20 +218,17 @@ fun NowPlayingScreen(
                     }
                 }
             },
-            confirmButton = {
+            dialogConfirmButton = {
                 TextButton(onClick = { showSleepPicker = false }) { Text("Close", color = PurpleAccent) }
             }
         )
     }
 
     if (showEqualizer && equalizerManager != null) {
-        AlertDialog(
-            onDismissRequest  = { showEqualizer = false },
-            containerColor    = CardGrey,
-            titleContentColor = TextPrimary,
-            textContentColor  = TextSecondary,
-            title = { Text("Equalizer", fontWeight = FontWeight.Bold, color = TextPrimary) },
-            text  = {
+        CassieDialog(
+            onDismissRequest = { showEqualizer = false },
+            dialogTitle = { Text("Equalizer", fontWeight = FontWeight.Bold, color = TextPrimary) },
+            dialogText  = {
                 Column {
                     if (eqPresets.isEmpty()) {
                         Text("Equalizer not available on this device", color = TextDim, fontSize = 14.sp)
@@ -252,23 +264,9 @@ fun NowPlayingScreen(
                     }
                 }
             },
-            confirmButton = {
+            dialogConfirmButton = {
                 TextButton(onClick = { showEqualizer = false }) { Text("Done", color = PurpleAccent) }
             }
-        )
-    }
-
-    // ── Glassmorphism background gradient (very dark purple → black) ─
-    val glassGradient = remember {
-        Brush.verticalGradient(
-            colors = listOf(
-                Color(0xFF0F0020), // deep purple-black
-                Color(0xFF080010),
-                PureBlack,
-                PureBlack,
-            ),
-            startY = 0f,
-            endY   = 1200f,
         )
     }
 
@@ -280,20 +278,41 @@ fun NowPlayingScreen(
                 translationY = offsetY.value.dp.toPx()
                 this.alpha   = alpha.value
             }
-            .background(glassGradient)
     ) {
-        // Frosted glass overlay (subtle semi-transparent layer + blur on 31+)
+        // ── immersive background: album art → blur → gradient overlay ─
+        if (song?.albumArtUri != null) {
+            AsyncImage(
+                model = remember(song.id, song.albumArtUri) {
+                    ImageRequest.Builder(context).data(song.albumArtUri).size(1080)
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .crossfade(true).build()
+                },
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                    scaleX = 1.4f; scaleY = 1.4f
+                    if (Build.VERSION.SDK_INT >= 31) {
+                        renderEffect = android.graphics.RenderEffect
+                            .createBlurEffect(60f, 60f, android.graphics.Shader.TileMode.CLAMP)
+                            .asComposeRenderEffect()
+                    }
+                },
+                contentScale = ContentScale.Crop,
+            )
+        }
+        // Black gradient overlay for readability
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.White.copy(alpha = 0.03f))
-                .graphicsLayer {
-                    if (Build.VERSION.SDK_INT >= 31) {
-                        renderEffect = android.graphics.RenderEffect
-                            .createBlurEffect(12f, 12f, android.graphics.Shader.TileMode.CLAMP)
-                            .asComposeRenderEffect()
-                    }
-                }
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            PureBlack.copy(alpha = 0.35f),
+                            PureBlack.copy(alpha = 0.55f),
+                            PureBlack.copy(alpha = 0.75f),
+                            PureBlack,
+                        )
+                    )
+                )
         )
 
         Column(
@@ -321,7 +340,15 @@ fun NowPlayingScreen(
                         if (showLyrics && lyricsText == null && song != null && !loadingLyrics) {
                             loadingLyrics = true
                             scope.launch {
-                                lyricsText    = LyricsRepository.fetchLyrics(song.artist, song.title)?.plainLyrics
+                                val prefs = PersistenceManager(context)
+                                val result = LyricsRepository.fetchLyrics(
+                                    artist = song.artist,
+                                    title = song.title,
+                                    songFilePath = song.filePath,
+                                    prefs = prefs,
+                                )
+                                lyricsText = result?.plainLyrics
+                                syncedLines = if (result?.syncedLyrics != null) parseLrc(result.syncedLyrics) else emptyList()
                                 loadingLyrics = false
                             }
                         }
@@ -380,7 +407,7 @@ fun NowPlayingScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Brush.linearGradient(listOf(PurpleAccent.copy(0.3f), PurpleAccent.copy(0.1f)))),
+                                .background(Brush.linearGradient(listOf(accentColor.copy(0.3f), accentColor.copy(0.1f)))),
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(Icons.Default.MusicNote, null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(80.dp))
@@ -413,51 +440,73 @@ fun NowPlayingScreen(
 
             Spacer(Modifier.height(28.dp))
 
-            // ── seekbar ──
+            // ── seekbar (Canvas with gradient fill + animated thumb) ──
             Column(Modifier.fillMaxWidth()) {
-                Box(
+                val progress = (position.toFloat() / duration).coerceIn(0f, 1f)
+                val isDragging = remember { mutableStateOf(false) }
+                val animProgress = animateFloatAsState(
+                    targetValue = progress, animationSpec = tween(200), label = "seek"
+                ).value
+
+                Canvas(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(32.dp)
-                        .clip(RoundedCornerShape(2.dp))
+                        .height(40.dp)
                         .pointerInput(Unit) {
                             detectTapGestures { offset ->
-                                val fraction = (offset.x / size.width).coerceIn(0f, 1f)
-                                playbackManager.seekTo((fraction * duration).toLong())
+                                playbackManager.seekTo(((offset.x / size.width) * duration).toLong())
                             }
                         }
                         .pointerInput(Unit) {
                             detectHorizontalDragGestures { change, _ ->
                                 change.consume()
-                                val fraction = (change.position.x / size.width).coerceIn(0f, 1f)
-                                playbackManager.seekTo((fraction * duration).toLong())
+                                isDragging.value = true
+                                playbackManager.seekTo(((change.position.x / size.width) * duration).toLong())
                             }
-                        },
-                    contentAlignment = Alignment.CenterStart,
+                        }
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(TextDim.copy(alpha = 0.3f))
-                    ) {
-                        val progress = (position.toFloat() / duration).coerceIn(0f, 1f)
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(progress)
-                                .clip(RoundedCornerShape(2.dp))
-                                .background(PurpleAccent)
+                    val trackTop = size.height / 2 - 2.dp.toPx()
+                    val trackH = 4.dp.toPx()
+                    val r = trackH / 2
+                    val fillEnd = animProgress * size.width
+
+                    // Track background
+                    drawRoundRect(
+                        color = TextDim.copy(alpha = 0.15f),
+                        topLeft = androidx.compose.ui.geometry.Offset(0f, trackTop),
+                        size = androidx.compose.ui.geometry.Size(size.width, trackH),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r)
+                    )
+                    // Gradient fill
+                    drawRoundRect(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(accentColor, accentColor.copy(alpha = 0.6f))
+                        ),
+                        topLeft = androidx.compose.ui.geometry.Offset(0f, trackTop),
+                        size = androidx.compose.ui.geometry.Size(fillEnd, trackH),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r)
+                    )
+                    // Thumb
+                    if (isDragging.value) {
+                        val thumbR = 10.dp.toPx()
+                        drawCircle(
+                            color = accentColor,
+                            radius = thumbR,
+                            center = androidx.compose.ui.geometry.Offset(fillEnd, size.height / 2)
+                        )
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.5f),
+                            radius = thumbR * 0.35f,
+                            center = androidx.compose.ui.geometry.Offset(fillEnd, size.height / 2)
                         )
                     }
                 }
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 2.dp, end = 2.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text(formatTime(position), color = TextDim, fontSize = 11.sp)
-                    Text(formatTime(duration), color = TextDim, fontSize = 11.sp)
+                    Text(formatTime(position), color = TextSecondary.copy(alpha = 0.6f), style = CassieTypography.caption)
+                    Text(formatTime(duration), color = TextSecondary.copy(alpha = 0.6f), style = CassieTypography.caption)
                 }
             }
 
@@ -479,19 +528,43 @@ fun NowPlayingScreen(
                         Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp).size(4.dp).clip(CircleShape).background(PurpleAccent))
                     }
                 }
-                IconButton(onClick = { playbackManager.skipToPrevious() }) {
-                    Icon(Icons.Default.SkipPrevious, "Previous", tint = TextPrimary, modifier = Modifier.size(28.dp))
+                // ── micro-animated skip previous ──
+                IconButton(
+                    onClick = { playbackManager.skipToPrevious() },
+                    modifier = Modifier.size(42.dp)
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onPress = {
+                                    // haptic-like visual press feedback
+                                    awaitRelease()
+                                }
+                            )
+                        }
+                ) {
+                    Icon(Icons.Default.SkipPrevious, "Previous", tint = TextPrimary.copy(alpha = 0.85f), modifier = Modifier.size(28.dp))
                 }
-                IconButton(onClick = { playbackManager.togglePlayPause() }, modifier = Modifier.size(64.dp)) {
+                // ── clean play/pause button ──
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(CircleShape)
+                        .background(accentColor)
+                        .clickable { playbackManager.togglePlayPause() },
+                    contentAlignment = Alignment.Center,
+                ) {
                     Icon(
-                        if (state.isPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
+                        if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = if (state.isPlaying) "Pause" else "Play",
-                        tint               = Color.White,
-                        modifier           = Modifier.size(52.dp),
+                        tint = Color.Black,
+                        modifier = Modifier.size(32.dp),
                     )
                 }
-                IconButton(onClick = { playbackManager.skipToNext() }) {
-                    Icon(Icons.Default.SkipNext, "Next", tint = TextPrimary, modifier = Modifier.size(28.dp))
+                // ── micro-animated skip next ──
+                IconButton(
+                    onClick = { playbackManager.skipToNext() },
+                    modifier = Modifier.size(42.dp)
+                ) {
+                    Icon(Icons.Default.SkipNext, "Next", tint = TextPrimary.copy(alpha = 0.85f), modifier = Modifier.size(28.dp))
                 }
                 Box(contentAlignment = Alignment.Center) {
                     IconButton(onClick = { playbackManager.cycleRepeat() }) {
@@ -534,25 +607,41 @@ fun NowPlayingScreen(
                 }
             }
 
-            // ── lyrics ──
+            // ── lyrics (Spotify-style synced) ──
             if (showLyrics) {
                 Spacer(Modifier.height(12.dp))
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 60.dp, max = 250.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(CardGrey)
-                        .padding(16.dp),
+                        .heightIn(min = 80.dp, max = 320.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    CardGrey,
+                                    accentColor.copy(alpha = 0.18f),
+                                    accentColor.copy(alpha = 0.08f),
+                                )
+                            )
+                        )
+                        .shadow(20.dp, RoundedCornerShape(16.dp), spotColor = accentColor.copy(alpha = 0.35f))
+                        .padding(vertical = 12.dp),
                 ) {
                     when {
-                        loadingLyrics -> Box(Modifier.fillMaxWidth().fillMaxHeight(), contentAlignment = Alignment.Center) {
+                        loadingLyrics -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(color = PurpleAccent, modifier = Modifier.size(24.dp))
                         }
-                        lyricsText != null -> Box(Modifier.fillMaxWidth().fillMaxHeight().verticalScroll(rememberScrollState())) {
-                            Text(lyricsText!!, color = TextSecondary, fontSize = 14.sp, lineHeight = 22.sp)
+                        syncedLines.isNotEmpty() -> SyncedLyricsDisplay(
+                            timedLines = syncedLines,
+                            currentPositionMs = position,
+                            isPlaying = state.isPlaying,
+                            accentColor = accentColor,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        lyricsText != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("No synced lyrics available", color = TextDim, fontSize = 13.sp)
                         }
-                        else -> Text("No lyrics found", color = TextDim, fontSize = 14.sp, modifier = Modifier.align(Alignment.Center))
+                        else -> Text("No lyrics found", color = TextDim, fontSize = 14.sp, modifier = Modifier.align(Alignment.Center).padding(16.dp))
                     }
                 }
             }

@@ -2,7 +2,9 @@ package com.example.cassie.ui.player
 
 import android.os.Build
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,6 +16,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -26,54 +30,68 @@ import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.example.cassie.data.media.PlaybackManager
+import com.example.cassie.ui.theme.CassieColors
+import com.example.cassie.ui.theme.CassieShapes
+import com.example.cassie.ui.theme.CassieSpacing
 
-// ── Palette ──
-private val CardFill   = Color(0xFF1E1E1E)
+// ── Theme Tokens ──
+private val CardFill   = CassieColors.CardGrey
 private val ArtBg      = Color(0xFF2A2A2A)
-private val BtnBg      = Color(0xFF333333)
-private val TextWhite  = Color.White
-private val TextSec    = Color.White.copy(alpha = 0.65f)
-private val PurpleAcc  = Color(0xFFBB86FC)
-private val AccDim     = PurpleAcc.copy(alpha = 0.5f)
+private val TextWhite  = CassieColors.TextPrimary
+private val TextSec    = CassieColors.TextSecondary
+private val PurpleAcc  = CassieColors.PurpleAccent
+private val AccDim     = CassieColors.PurpleDim
 
-private val Shape    = RoundedCornerShape(14.dp)
-private val ArtShape = RoundedCornerShape(10.dp)
+private val Shape    = CassieShapes.large
+private val ArtShape = CassieShapes.medium
 
-// ── Cava visualizer — animated bars ──────────────────────────────
+// ── Cava visualizer — animated wave ──────────────────────────────
 @Composable
 private fun CavaBars() {
-    // 6 bars with staggered animation delays
-    val barCount = 6
-    val delays = listOf(0, 150, 300, 450, 200, 350)
+    val barCount = 10
+    val delays = listOf(0, 90, 180, 270, 360, 80, 170, 260, 350, 440)
     val anims = delays.map { delay ->
         rememberInfiniteTransition(label = "cava").animateFloat(
-            initialValue = 0.15f, targetValue = 0.85f,
+            initialValue = 0.1f, targetValue = 0.9f,
             animationSpec = infiniteRepeatable(
-                tween(700, easing = FastOutSlowInEasing),
+                tween(600, easing = FastOutSlowInEasing),
                 RepeatMode.Reverse,
                 StartOffset(delay),
             ),
             label = "bar",
         )
     }
-    // Heights ramp up towards center
-    val heights = listOf(12.dp, 24.dp, 36.dp, 36.dp, 24.dp, 12.dp)
+    // Wave-shaped heights (rises to center, falls)
+    val heights = listOf(8.dp, 16.dp, 26.dp, 34.dp, 38.dp, 38.dp, 34.dp, 26.dp, 16.dp, 8.dp)
 
-    Row(
+    Canvas(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.Bottom,
+            .padding(horizontal = 16.dp)
     ) {
+        val barW = size.width / barCount
+        val gap = barW * 0.2f
+        val barWidth = barW - gap
+
         heights.forEachIndexed { i, h ->
             val s by anims[i]
-            Box(
-                modifier = Modifier
-                    .width(4.dp)
-                    .height(h * s)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(PurpleAcc)
+            val barH = h.toPx() * s
+            val x = i * barW + gap / 2
+            val y = size.height - barH
+
+            // Rounded-top wave bar with gradient glow
+            drawRoundRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        PurpleAcc,
+                        PurpleAcc.copy(alpha = 0.3f),
+                    ),
+                    startY = y,
+                    endY = size.height,
+                ),
+                topLeft = androidx.compose.ui.geometry.Offset(x, y),
+                size = androidx.compose.ui.geometry.Size(barWidth, barH),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth / 2, barWidth / 2),
             )
         }
     }
@@ -94,11 +112,19 @@ fun MiniPlayer(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(60.dp)
+            .height(68.dp)
             .clip(Shape)
             .background(CardFill)
             .clickable(onClick = onClick)
     ) {
+        // Layer 0: Glass base with subtle border
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(CassieColors.GlassWhite)
+                .border(0.5.dp, CassieColors.GlassBorder, Shape)
+        )
+
         // Layer 1: Cava visualizer (visible when playing)
         if (state.isPlaying) {
             Box(
@@ -110,12 +136,12 @@ fun MiniPlayer(
             }
         }
 
-        // Layer 2: Content with semi-transparent background
+        // Layer 2: Content with glass overlay
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .background(if (state.isPlaying) CardFill.copy(alpha = 0.70f) else CardFill)
-                .padding(start = 8.dp, end = 6.dp),
+                .background(if (state.isPlaying) CardFill.copy(alpha = 0.55f) else CardFill)
+                .padding(start = CassieSpacing.lg, end = CassieSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // Album art
@@ -199,21 +225,30 @@ fun MiniPlayer(
 
             Spacer(Modifier.width(2.dp))
 
-            // Play / Pause
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(BtnBg)
-                    .clickable { playbackManager.togglePlayPause() },
-                contentAlignment = Alignment.Center,
+            // Play / Pause (spring-animated scale)
+            val miniPlayScale by animateFloatAsState(
+                targetValue = if (state.isPlaying) 1f else 0.88f,
+                animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMedium),
+                label = "miniPlay"
+            )
+            Surface(
+                onClick = { playbackManager.togglePlayPause() },
+                shape = RoundedCornerShape(50),
+                color = PurpleAcc,
+                tonalElevation = 4.dp,
+                modifier = Modifier.size(34.dp).graphicsLayer {
+                    scaleX = miniPlayScale
+                    scaleY = miniPlayScale
+                },
             ) {
-                Icon(
-                    if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = if (state.isPlaying) "Pause" else "Play",
-                    tint = TextWhite,
-                    modifier = Modifier.size(18.dp),
-                )
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(
+                        if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (state.isPlaying) "Pause" else "Play",
+                        tint = Color.Black,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
 
             Spacer(Modifier.width(2.dp))

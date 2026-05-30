@@ -43,16 +43,21 @@ import com.example.cassie.data.media.PlaybackManager
 import com.example.cassie.data.media.Playlist
 import com.example.cassie.data.media.PlaylistStore
 import com.example.cassie.data.media.Song
+import com.example.cassie.ui.theme.CassieColors
+import com.example.cassie.ui.theme.CassieDialog
+import androidx.compose.ui.platform.LocalContext
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 
-private val PureBlack     = Color(0xFF000000)
-private val CardGrey      = Color(0xFF1E1E1E)
-private val SurfaceGrey   = Color(0xFF282828)
-private val PurpleAccent  = Color(0xFFBB86FC)
-private val TextPrimary   = Color.White
-private val TextSecondary = Color.White.copy(alpha = 0.6f)
-private val TextDim       = Color.White.copy(alpha = 0.35f)
+// ── Theme Tokens ──────────────────────────────────────────────────
+private val PureBlack     = CassieColors.PureBlack
+private val CardGrey      = CassieColors.CardGrey
+private val SurfaceGrey   = CassieColors.SurfaceGrey
+private val PurpleAccent  = CassieColors.PurpleAccent
+private val TextPrimary   = CassieColors.TextPrimary
+private val TextSecondary = CassieColors.TextSecondary
+private val TextDim       = CassieColors.TextDim
 
 /** Copy a content URI to internal storage so the image persists. Returns null on failure. */
 private fun copyToInternalStorage(context: Context, sourceUri: Uri, fileName: String): String? {
@@ -306,11 +311,10 @@ fun PlaylistDetailScreen(
             }
         }
 
-        AlertDialog(
+        CassieDialog(
             onDismissRequest = { showAddDialog = false },
-            containerColor = CardGrey,
-            title = { Text("Add Songs", color = TextPrimary, fontWeight = FontWeight.Bold) },
-            text = {
+            dialogTitle = { Text("Add Songs", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            dialogText = {
                 Column {
                     OutlinedTextField(
                         value = addSearch,
@@ -368,18 +372,17 @@ fun PlaylistDetailScreen(
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { showAddDialog = false }) { Text("Done", color = PurpleAccent) } }
+            dialogConfirmButton = { TextButton(onClick = { showAddDialog = false }) { Text("Done", color = PurpleAccent) } }
         )
     }
 
     // ── Rename Dialog ──
     if (showRenameDialog) {
         var newName by remember { mutableStateOf(currentPlaylist.name) }
-        AlertDialog(
+        CassieDialog(
             onDismissRequest = { showRenameDialog = false },
-            containerColor = CardGrey,
-            title = { Text("Rename Playlist", color = TextPrimary, fontWeight = FontWeight.Bold) },
-            text = {
+            dialogTitle = { Text("Rename Playlist", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            dialogText = {
                 OutlinedTextField(
                     value = newName,
                     onValueChange = { newName = it },
@@ -391,7 +394,7 @@ fun PlaylistDetailScreen(
                     )
                 )
             },
-            confirmButton = {
+            dialogConfirmButton = {
                 TextButton(onClick = {
                     if (newName.isNotBlank()) {
                         playlistStore?.rename(currentPlaylist.id, newName.trim())
@@ -399,27 +402,25 @@ fun PlaylistDetailScreen(
                     }
                 }) { Text("Save", color = PurpleAccent) }
             },
-            dismissButton = { TextButton(onClick = { showRenameDialog = false }) { Text("Cancel", color = TextDim) } }
+            dialogDismissButton = { TextButton(onClick = { showRenameDialog = false }) { Text("Cancel", color = TextDim) } }
         )
     }
 
     // ── Delete Confirmation ──
     if (showDeleteConfirm) {
-        AlertDialog(
+        CassieDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            containerColor = CardGrey,
-            title = { Text("Delete Playlist?", color = TextPrimary, fontWeight = FontWeight.Bold) },
-            text = { Text("\"${currentPlaylist.name}\" will be permanently deleted.", color = TextSecondary, fontSize = 14.sp) },
-            confirmButton = {
+            dialogTitle = { Text("Delete Playlist?", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            dialogText = { Text("\"${currentPlaylist.name}\" will be permanently deleted.", color = TextSecondary, fontSize = 14.sp) },
+            dialogConfirmButton = {
                 TextButton(onClick = {
-                    // Delete custom cover image too
                     if (currentPlaylist.coverUri != null) deleteCoverImage(context, currentPlaylist.coverUri)
                     playlistStore?.delete(currentPlaylist.id)
                     showDeleteConfirm = false
                     onBack()
                 }) { Text("Delete", color = Color.Red) }
             },
-            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel", color = TextDim) } }
+            dialogDismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel", color = TextDim) } }
         )
     }
 }
@@ -490,11 +491,10 @@ private fun PlaylistSongRow(
 
         if (showPlaylistMenu && playlistStore != null) {
             val playlists by playlistStore.playlists.collectAsState()
-            AlertDialog(
+            CassieDialog(
                 onDismissRequest = { showPlaylistMenu = false },
-                containerColor = CardGrey,
-                title = { Text("Add to Playlist", color = TextPrimary, fontWeight = FontWeight.Bold) },
-                text = {
+                dialogTitle = { Text("Add to Playlist", color = TextPrimary, fontWeight = FontWeight.Bold) },
+                dialogText = {
                     if (playlists.isEmpty()) {
                         Text("No playlists yet!", color = TextDim, fontSize = 14.sp)
                     } else {
@@ -515,7 +515,7 @@ private fun PlaylistSongRow(
                         }
                     }
                 },
-                confirmButton = { TextButton(onClick = { showPlaylistMenu = false }) { Text("Done", color = PurpleAccent) } }
+                dialogConfirmButton = { TextButton(onClick = { showPlaylistMenu = false }) { Text("Done", color = PurpleAccent) } }
             )
         }
     }

@@ -76,6 +76,9 @@ dependencies {
 
     implementation(libs.coil.compose)
 
+    // Palette for dynamic album art color extraction
+    implementation("androidx.palette:palette-ktx:1.0.0")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -28,17 +28,19 @@ import com.example.cassie.data.media.FavoritesStore
 import com.example.cassie.data.media.PlaybackManager
 import com.example.cassie.data.media.PlaylistStore
 import com.example.cassie.data.media.Song
+import com.example.cassie.ui.theme.CassieColors
+import com.example.cassie.ui.theme.CassieSpacing
 import androidx.compose.ui.platform.LocalContext
 
-// ── Palette ───────────────────────────────────────────────────────
-private val PureBlack     = Color(0xFF000000)
-private val DarkGrey      = Color(0xFF121212)
-private val CardGrey      = Color(0xFF1E1E1E)
-private val SurfaceGrey   = Color(0xFF282828)
-private val PurpleAccent  = Color(0xFFBB86FC)
-private val TextPrimary   = Color.White
-private val TextSecondary = Color.White.copy(alpha = 0.6f)
-private val TextDim       = Color.White.copy(alpha = 0.35f)
+// ── Theme Tokens ──────────────────────────────────────────────────
+private val PureBlack     = CassieColors.PureBlack
+private val DarkGrey      = CassieColors.DarkGrey
+private val CardGrey      = CassieColors.CardGrey
+private val SurfaceGrey   = CassieColors.SurfaceGrey
+private val PurpleAccent  = CassieColors.PurpleAccent
+private val TextPrimary   = CassieColors.TextPrimary
+private val TextSecondary = CassieColors.TextSecondary
+private val TextDim       = CassieColors.TextDim
 
 data class AlbumGroup(
     val albumName: String,

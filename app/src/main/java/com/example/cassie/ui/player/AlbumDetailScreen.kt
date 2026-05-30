@@ -29,15 +29,18 @@ import com.example.cassie.data.media.FavoritesStore
 import com.example.cassie.data.media.PlaybackManager
 import com.example.cassie.data.media.PlaylistStore
 import com.example.cassie.data.media.Song
+import com.example.cassie.ui.theme.CassieColors
+import com.example.cassie.ui.theme.CassieDialog
 import androidx.compose.ui.platform.LocalContext
 
-private val PureBlack     = Color(0xFF000000)
-private val CardGrey      = Color(0xFF1E1E1E)
-private val SurfaceGrey   = Color(0xFF282828)
-private val PurpleAccent  = Color(0xFFBB86FC)
-private val TextPrimary   = Color.White
-private val TextSecondary = Color.White.copy(alpha = 0.6f)
-private val TextDim       = Color.White.copy(alpha = 0.35f)
+// ── Theme Tokens ──────────────────────────────────────────────────
+private val PureBlack     = CassieColors.PureBlack
+private val CardGrey      = CassieColors.CardGrey
+private val SurfaceGrey   = CassieColors.SurfaceGrey
+private val PurpleAccent  = CassieColors.PurpleAccent
+private val TextPrimary   = CassieColors.TextPrimary
+private val TextSecondary = CassieColors.TextSecondary
+private val TextDim       = CassieColors.TextDim
 
 @Composable
 fun AlbumDetailScreen(
@@ -198,11 +201,10 @@ private fun AlbumSongRow(
         // Playlist picker
         if (showMenu && playlistStore != null) {
             val playlists by playlistStore.playlists.collectAsState()
-            AlertDialog(
+            CassieDialog(
                 onDismissRequest = { showMenu = false },
-                containerColor = CardGrey,
-                title = { Text("Add to Playlist", color = TextPrimary, fontWeight = FontWeight.Bold) },
-                text = {
+                dialogTitle = { Text("Add to Playlist", color = TextPrimary, fontWeight = FontWeight.Bold) },
+                dialogText = {
                     if (playlists.isEmpty()) {
                         Text("No playlists yet!", color = TextDim, fontSize = 14.sp)
                     } else {
@@ -223,7 +225,7 @@ private fun AlbumSongRow(
                         }
                     }
                 },
-                confirmButton = { TextButton(onClick = { showMenu = false }) { Text("Done", color = PurpleAccent) } }
+                dialogConfirmButton = { TextButton(onClick = { showMenu = false }) { Text("Done", color = PurpleAccent) } }
             )
         }
     }

@@ -19,6 +19,7 @@ data class Song(
     val mimeType: String,
     val albumArtUri: String?,
     val genre: String = "",
+    val filePath: String? = null, // for companion .lrc lookup
 )
 
 class MediaStoreScanner(private val context: Context) {
@@ -41,6 +42,7 @@ class MediaStoreScanner(private val context: Context) {
             MediaStore.Audio.Media.DATE_ADDED,
             MediaStore.Audio.Media.MIME_TYPE,
             MediaStore.Audio.AudioColumns.GENRE,
+            MediaStore.Audio.Media.DATA,
         )
         val where = mimeTypes.joinToString(" OR ") { "${MediaStore.Audio.Media.MIME_TYPE} = ?" }
         val sel = "$where AND ${MediaStore.Audio.Media.DURATION} > 30000"
@@ -59,6 +61,7 @@ class MediaStoreScanner(private val context: Context) {
             val dateCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
             val mime = c.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
             val genreIdx = c.getColumnIndex(MediaStore.Audio.AudioColumns.GENRE)
+            val dataIdx = c.getColumnIndex(MediaStore.Audio.Media.DATA)
 
             while (c.moveToNext()) {
                 val aid = c.getLong(albumId)
@@ -73,6 +76,7 @@ class MediaStoreScanner(private val context: Context) {
                     mimeType = c.getString(mime) ?: "audio/mpeg",
                     albumArtUri = Uri.parse("content://media/external/audio/albumart/$aid").toString(),
                     genre = if (genreIdx >= 0) c.getString(genreIdx) ?: "" else "",
+                    filePath = if (dataIdx >= 0) c.getString(dataIdx) else null,
                 ))
             }
         }

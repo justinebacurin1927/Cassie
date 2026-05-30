@@ -14,9 +14,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
+import android.os.Build
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -25,6 +27,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -41,16 +46,18 @@ import com.example.cassie.data.media.PlaybackManager
 import com.example.cassie.data.media.Playlist
 import com.example.cassie.data.media.PlaylistStore
 import com.example.cassie.data.media.Song
+import com.example.cassie.ui.theme.CassieColors
+import com.example.cassie.ui.theme.CassieDialog
 
-// ── Pure Black + Purple Accent Palette ────────────────────────────
-private val PureBlack     = Color(0xFF000000)
-private val CardGrey      = Color(0xFF1E1E1E)
-private val SurfaceGrey   = Color(0xFF282828)
-private val PurpleAccent  = Color(0xFFBB86FC)
-private val TextPrimary   = Color.White
-private val TextSecondary = Color.White.copy(alpha = 0.6f)
-private val TextDim       = Color.White.copy(alpha = 0.35f)
-private val GreyIcon      = Color.White.copy(alpha = 0.55f)
+// ── Theme Tokens ──────────────────────────────────────────────────
+private val PureBlack     = CassieColors.PureBlack
+private val CardGrey      = CassieColors.CardGrey
+private val SurfaceGrey   = CassieColors.SurfaceGrey
+private val PurpleAccent  = CassieColors.PurpleAccent
+private val TextPrimary   = CassieColors.TextPrimary
+private val TextSecondary = CassieColors.TextSecondary
+private val TextDim       = CassieColors.TextDim
+private val GreyIcon      = CassieColors.GreyIcon
 
 // ── Sort Options ──────────────────────────────────────────────────
 enum class SortOption(val label: String) {
@@ -458,12 +465,25 @@ private fun SongCard(song: Song, onClick: () -> Unit, playbackManager: PlaybackM
     val isFav = song.id in favIds
     val context = LocalContext.current
 
+    var isPressed by remember { mutableStateOf(false) }
+    val pressScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMedium),
+        label = "pressScale"
+    )
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .graphicsLayer { scaleX = pressScale; scaleY = pressScale }
             .clip(RoundedCornerShape(10.dp))
             .background(CardGrey)
-            .clickable(onClick = onClick)
+            .pointerInput(onClick) {
+                detectTapGestures(
+                    onPress = { isPressed = true; tryAwaitRelease(); isPressed = false },
+                    onTap = { onClick() }
+                )
+            }
             .padding(vertical = 10.dp, horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -546,11 +566,10 @@ private fun SongCard(song: Song, onClick: () -> Unit, playbackManager: PlaybackM
         // playlist picker dialog
         if (showPlaylistPicker && playlistStore != null) {
             val playlists by playlistStore.playlists.collectAsState()
-            AlertDialog(
+            CassieDialog(
                 onDismissRequest = { showPlaylistPicker = false },
-                containerColor = CardGrey,
-                title = { Text("Add to Playlist", color = TextPrimary, fontWeight = FontWeight.Bold) },
-                text = {
+                dialogTitle = { Text("Add to Playlist", color = TextPrimary, fontWeight = FontWeight.Bold) },
+                dialogText = {
                     if (playlists.isEmpty()) {
                         Text("No playlists yet. Create one first!", color = TextDim, fontSize = 14.sp)
                     } else {
@@ -572,7 +591,7 @@ private fun SongCard(song: Song, onClick: () -> Unit, playbackManager: PlaybackM
                         }
                     }
                 },
-                confirmButton = { TextButton(onClick = { showPlaylistPicker = false }) { Text("Done", color = PurpleAccent) } }
+                dialogConfirmButton = { TextButton(onClick = { showPlaylistPicker = false }) { Text("Done", color = PurpleAccent) } }
             )
         }
     }
@@ -880,29 +899,62 @@ private fun VibeCard(stats: VibeStats) {
         animationSpec = infiniteRepeatable(tween(4000, easing = LinearEasing), RepeatMode.Reverse),
         label = "gradOffset"
     )
+    // ── Gradient glow animation ──
+    val glowInfinite = rememberInfiniteTransition(label = "vibeGlow")
+    val glowIntensity by glowInfinite.animateFloat(
+        initialValue = 0.15f, targetValue = 0.6f,
+        animationSpec = infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "glowIntensity"
+    )
+    val glowOffsetY by glowInfinite.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(2400, easing = LinearEasing), RepeatMode.Reverse),
+        label = "glowOffset"
+    )
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .clip(RoundedCornerShape(14.dp))
-            .background(
-                Brush.horizontalGradient(
-                    colors = listOf(VibePurple1, VibePurple2),
-                    startX = 0f,
-                    endX = 800f * offset + 200f
-                )
-            )
     ) {
+        // ── Base dark gradient ──
         Box(
-            Modifier.fillMaxWidth().height(2.dp)
-                .background(PurpleAccent.copy(alpha = 0.4f))
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(VibePurple1, VibePurple2)
+                    )
+                )
+        )
+        // ── Gradient glow — purple light radiating from within ──
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            PurpleAccent.copy(alpha = glowIntensity * 0.8f),
+                            Color.Transparent,
+                            PurpleAccent.copy(alpha = glowIntensity * 0.3f),
+                        )
+                    )
+                )
+        )
+        // ── Top glowing accent bar ──
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(3.dp)
+                .background(PurpleAccent.copy(alpha = glowIntensity + 0.3f))
                 .align(Alignment.TopCenter)
         )
+        // ── Content ──
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Insights, null,
-                    tint = PurpleAccent.copy(alpha = 0.8f), modifier = Modifier.size(18.dp))
+                    tint = PurpleAccent.copy(alpha = 0.8f + glowIntensity * 0.2f), modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Your Vibe", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
