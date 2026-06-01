@@ -26,9 +26,12 @@ import java.util.Calendar
  *
  * Responsibilities:
  *  - Subscribe to the event stream and fold every event into stats.
- *  - Persist stats via [UserPatternStore] (throttled).
- *  - Generate a new line when something interesting happens
- *    (throttled to one line per [LINE_COOLDOWN_MS] ms to avoid spam).
+ *  - Persist stats via [UserPatternStore] (throttled to once / 10s).
+ *  - Generate a new line on every meaningful event — see
+ *    [shouldRegenerateOn] for the trigger list. There is NO cooldown
+ *    block: every SongStarted produces a fresh line, that's the
+ *    primary signal the user wants. Anti-repetition lives in
+ *    [LineGenerator]'s de-dup loop, not in throttling.
  *  - Expose live state to the UI: current patterns, recent events,
  *    and the line Skipper is currently saying.
  *
@@ -147,19 +150,19 @@ object SkipperEngine {
             else -> { /* no tracker side-effect */ }
         }
 
-            // 3. party-mode flag tracking (for the SlotContext)
-            if (event is UserEvent.PartyModeToggled) {
-                isPartyMode = event.enabled
-            }
-            // 3b. playback-state tracking (for isActivelyPlaying)
-            when (event) {
-                is UserEvent.SongResumed -> isActivelyPlaying = true
-                is UserEvent.SongPaused,
-                is UserEvent.AppBackgrounded -> isActivelyPlaying = false
-                is UserEvent.SongStarted -> isActivelyPlaying = true
-                is UserEvent.SongCompleted -> isActivelyPlaying = false
-                else -> { /* unchanged */ }
-            }
+        // 3. party-mode flag tracking (for the SlotContext)
+        if (event is UserEvent.PartyModeToggled) {
+            isPartyMode = event.enabled
+        }
+        // 3b. playback-state tracking (for isActivelyPlaying)
+        when (event) {
+            is UserEvent.SongResumed -> isActivelyPlaying = true
+            is UserEvent.SongPaused,
+            is UserEvent.AppBackgrounded -> isActivelyPlaying = false
+            is UserEvent.SongStarted -> isActivelyPlaying = true
+            is UserEvent.SongCompleted -> isActivelyPlaying = false
+            else -> { /* unchanged */ }
+        }
 
         // 4. fold into running stats
         recognizer.applyEvent(stats, event)
@@ -287,6 +290,4 @@ object SkipperEngine {
     fun flush() {
         if (initialized) store.save(stats)
     }
-
-    private const val LINE_COOLDOWN_MS = 3_000L
 }
