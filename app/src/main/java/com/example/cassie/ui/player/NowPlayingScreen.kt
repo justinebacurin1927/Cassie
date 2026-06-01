@@ -62,6 +62,7 @@ import com.example.cassie.ui.theme.CassieSpacing
 import com.example.cassie.ui.theme.CassieTypography
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 // ── Palette (legacy alias — will migrate fully) ────────────────────
 private val PureBlack     = CassieColors.PureBlack
@@ -136,11 +137,43 @@ fun NowPlayingScreen(
     }
 
     // ── lyrics state ────────────────────────────────────────────────
-    var showLyrics    by remember { mutableStateOf(false) }
-    var lyricsText    by remember { mutableStateOf<String?>(null) }
-    var syncedLines   by remember { mutableStateOf<List<TimedLyricLine>>(emptyList()) }
-    var loadingLyrics by remember { mutableStateOf(false) }
+    var showLyrics       by remember { mutableStateOf(false) }
+    var lyricsText       by remember { mutableStateOf<String?>(null) }
+    var syncedLines      by remember { mutableStateOf<List<TimedLyricLine>>(emptyList()) }
+    var loadingLyrics    by remember { mutableStateOf(false) }
+    var lyricsError      by remember { mutableStateOf(false) }
+    var lyricsAttempted  by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    /** Fetch lyrics with timeout and proper error handling. */
+    val fetchLyrics: suspend () -> Unit = {
+        if (!loadingLyrics) {
+            loadingLyrics = true
+            lyricsError = false
+            try {
+                val result = withTimeout(10_000L) {
+                    val prefs = PersistenceManager(context)
+                    LyricsRepository.fetchLyrics(
+                        artist = song!!.artist,
+                        title = song!!.title,
+                        songFilePath = song!!.filePath,
+                        prefs = prefs,
+                    )
+                }
+                lyricsText = result?.plainLyrics
+                syncedLines = if (result?.syncedLyrics != null) parseLrc(result.syncedLyrics) else emptyList()
+                lyricsAttempted = true
+                lyricsError = false
+            } catch (_: Exception) {
+                lyricsText = null
+                syncedLines = emptyList()
+                lyricsError = true
+                lyricsAttempted = true
+            } finally {
+                loadingLyrics = false
+            }
+        }
+    }
 
     // ── queue dialog ────────────────────────────────────────────────
     var showQueue by remember { mutableStateOf(false) }
@@ -337,20 +370,8 @@ fun NowPlayingScreen(
                 Row {
                     IconButton(onClick = {
                         showLyrics = !showLyrics
-                        if (showLyrics && lyricsText == null && song != null && !loadingLyrics) {
-                            loadingLyrics = true
-                            scope.launch {
-                                val prefs = PersistenceManager(context)
-                                val result = LyricsRepository.fetchLyrics(
-                                    artist = song.artist,
-                                    title = song.title,
-                                    songFilePath = song.filePath,
-                                    prefs = prefs,
-                                )
-                                lyricsText = result?.plainLyrics
-                                syncedLines = if (result?.syncedLyrics != null) parseLrc(result.syncedLyrics) else emptyList()
-                                loadingLyrics = false
-                            }
+                        if (showLyrics && (lyricsText == null || lyricsError) && !loadingLyrics && song != null) {
+                            scope.launch { fetchLyrics() }
                         }
                     }) {
                         Icon(
@@ -628,9 +649,9 @@ fun NowPlayingScreen(
                         .padding(vertical = 12.dp),
                 ) {
                     when {
-                        loadingLyrics -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = PurpleAccent, modifier = Modifier.size(24.dp))
-                        }
+                        // ── loading: animated skeleton ──
+                        loadingLyrics -> LyricsSkeleton()
+                        // ── synced karaoke ──
                         syncedLines.isNotEmpty() -> SyncedLyricsDisplay(
                             timedLines = syncedLines,
                             currentPositionMs = position,
@@ -638,15 +659,60 @@ fun NowPlayingScreen(
                             accentColor = accentColor,
                             modifier = Modifier.fillMaxSize(),
                         )
+                        // ── plain lyrics available ──
                         lyricsText != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text("No synced lyrics available", color = TextDim, fontSize = 13.sp)
                         }
+                        // ── error / retry ──
+                        lyricsError -> Column(
+                            Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            Text("Couldn't load lyrics", color = TextDim, fontSize = 13.sp)
+                            Spacer(Modifier.height(8.dp))
+                            TextButton(onClick = { scope.launch { fetchLyrics() } }) {
+                                Text("Retry", color = PurpleAccent, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        // ── no lyrics found (clean attempt + no result) ──
+                        lyricsAttempted -> Text("No lyrics found", color = TextDim, fontSize = 14.sp, modifier = Modifier.align(Alignment.Center).padding(16.dp))
+                        // ── fallback (shouldn't happen) ──
                         else -> Text("No lyrics found", color = TextDim, fontSize = 14.sp, modifier = Modifier.align(Alignment.Center).padding(16.dp))
                     }
                 }
             }
 
             Spacer(Modifier.height(40.dp))
+        }
+    }
+}
+
+// ── Animated lyrics loading skeleton ────────────────────────────
+@Composable
+private fun LyricsSkeleton(modifier: Modifier = Modifier) {
+    val infinite = rememberInfiniteTransition(label = "skeletonPulse")
+    val alpha by infinite.animateFloat(
+        initialValue = 0.2f, targetValue = 0.6f,
+        animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "pulse"
+    )
+
+    Column(
+        modifier = modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        // simulate 6 lyric lines at varying widths
+        val widths = listOf(0.85f, 0.6f, 0.75f, 0.5f, 0.8f, 0.55f)
+        widths.forEachIndexed { idx, w ->
+            val isDim = idx < 2 || idx > 3
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(w)
+                    .height(14.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(TextPrimary.copy(alpha = alpha * if (isDim) 0.5f else 1f))
+            )
         }
     }
 }
