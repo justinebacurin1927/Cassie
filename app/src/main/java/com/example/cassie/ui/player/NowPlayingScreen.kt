@@ -12,6 +12,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
@@ -91,6 +92,16 @@ fun NowPlayingScreen(
     // Drives translateY from +60dp → 0 and alpha 0 → 1 on first composition
     val offsetY = remember { Animatable(60f) }
     val alpha   = remember { Animatable(0f) }
+
+    // ── swipe-down-to-dismiss ────────────────────────────────────────
+    // Translates the whole NowPlaying screen downward as the user drags.
+    // On release: if the drag past the dismiss threshold (~120dp) or
+    // velocity is high, slide it off-screen and call onClose(). Otherwise
+    // spring back to 0. Pairs with the iOS-style modal feel.
+    val swipeOffsetY = remember { Animatable(0f) }
+    val swipeAlpha   = remember { Animatable(1f) }
+    val swipeScope   = rememberCoroutineScope()
+    val dismissThresholdPx = with(LocalDensity.current) { 120.dp.toPx() }
 
     LaunchedEffect(Unit) {
         launch {
@@ -318,13 +329,70 @@ fun NowPlayingScreen(
         )
     }
 
-    // ── root — entrance transform applied here ──────────────────────
+    // ── root — entrance transform + swipe-down-to-dismiss applied here ─
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .pointerInput(Unit) {
+                // Swipe-down to dismiss NowPlaying (iOS-style modal).
+                // Don't fight the seekbar's horizontal drag — only
+                // consume vertical motion.
+                var totalDrag = 0f
+                detectVerticalDragGestures(
+                    onDragStart = { totalDrag = 0f },
+                    onDragEnd = {
+                        val past = swipeOffsetY.value > dismissThresholdPx
+                        swipeScope.launch {
+                            if (past) {
+                                // Slide off + fade, then close.
+                                launch {
+                                    swipeOffsetY.animateTo(
+                                        targetValue = 1500f,
+                                        animationSpec = tween(
+                                            durationMillis = 220,
+                                            easing         = FastOutLinearInEasing,
+                                        ),
+                                    )
+                                    onClose()
+                                }
+                                launch {
+                                    swipeAlpha.animateTo(
+                                        targetValue = 0f,
+                                        animationSpec = tween(
+                                            durationMillis = 220,
+                                            easing         = FastOutLinearInEasing,
+                                        ),
+                                    )
+                                }
+                            } else {
+                                // Spring back to rest.
+                                launch { swipeOffsetY.animateTo(0f, spring()) }
+                                launch { swipeAlpha.animateTo(1f, spring()) }
+                            }
+                        }
+                    },
+                    onDragCancel = {
+                        swipeScope.launch {
+                            launch { swipeOffsetY.animateTo(0f, spring()) }
+                            launch { swipeAlpha.animateTo(1f, spring()) }
+                        }
+                    },
+                ) { change, dragAmount ->
+                    if (dragAmount > 0f) {
+                        // Only respond to downward drags; let upward
+                        // swipes (which often mean "scroll content")
+                        // pass through to the LazyColumn.
+                        change.consume()
+                        totalDrag += dragAmount
+                        swipeScope.launch {
+                            swipeOffsetY.snapTo(swipeOffsetY.value + dragAmount)
+                        }
+                    }
+                }
+            }
             .graphicsLayer {
-                translationY = offsetY.value.dp.toPx()
-                this.alpha   = alpha.value
+                translationY = offsetY.value.dp.toPx() + swipeOffsetY.value
+                this.alpha   = alpha.value * swipeAlpha.value
             }
     ) {
         // ── immersive background: album art → blur → gradient overlay ─
@@ -482,6 +550,7 @@ fun NowPlayingScreen(
             SeekBar(
                 position = position,
                 duration = duration,
+                isPlaying = state.isPlaying,
                 accentColor = accentColor,
                 onSeek = { playbackManager.seekTo(it) },
             )
@@ -662,21 +731,56 @@ fun NowPlayingScreen(
 
 // ── Seekbar (extracted so the 4Hz position tick doesn't recompose
 //    the whole player) ───────────────────────────────────────────
+// Spring-glide animation: each 250ms tick, animate the displayed
+// value from the previous display to the new real position over
+// exactly the elapsed wall-clock time. The animation is interrupted
+// by the next tick (LaunchedEffect re-launches), but the new
+// animation picks up from the current displayed value — so the
+// user sees a smooth glide at 60fps instead of a 4Hz staircase.
+// Big jumps (seek / song change / app resume) snap instantly.
 @Composable
 private fun SeekBar(
     position: Long,
     duration: Long,
+    isPlaying: Boolean,
     accentColor: Color,
     onSeek: (Long) -> Unit,
 ) {
     val safeDuration = duration.coerceAtLeast(1L)
-    val progress = (position.toFloat() / safeDuration).coerceIn(0f, 1f)
+    val displayed = remember { Animatable(0f) }
     val isDragging = remember { mutableStateOf(false) }
-    val animProgress by animateFloatAsState(
-        targetValue = progress,
-        animationSpec = tween(150, easing = LinearEasing),
-        label = "seek",
-    )
+    val lastPosition = remember { mutableLongStateOf(0L) }
+    val lastUpdateMs = remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(position, isPlaying) {
+        // While the user is dragging the thumb, the seekbar follows
+        // the finger directly — don't fight it with our own animation.
+        if (isDragging.value) return@LaunchedEffect
+        val now = System.currentTimeMillis()
+        val timeDelta = (now - lastUpdateMs.longValue).coerceIn(1L, 2000L)
+        val posDelta = position - lastPosition.longValue
+        val target = (position.toFloat() / safeDuration).coerceIn(0f, 1f)
+
+        // Snap on seek / song change / app resume: any delta that
+        // can't be explained by normal playback (250ms tick = ~250ms
+        // of music, give or tens of ms of jitter).
+        val expectedMax = (timeDelta * 2L) + 100L  // 2x normal rate + 100ms slack
+        if (posDelta < 0L || posDelta > expectedMax) {
+            displayed.snapTo(target)
+        } else {
+            // Glide: animate over the elapsed time so the thumb
+            // moves smoothly at the display refresh rate.
+            displayed.animateTo(
+                targetValue = target,
+                animationSpec = tween(
+                    durationMillis = timeDelta.toInt(),
+                    easing         = LinearEasing,
+                ),
+            )
+        }
+        lastPosition.longValue = position
+        lastUpdateMs.longValue = now
+    }
 
     // Hoist allocations out of the per-frame Canvas draw.
     val fillBrush = remember(accentColor) {
@@ -704,15 +808,18 @@ private fun SeekBar(
                     }
                 }
                 .pointerInput(safeDuration) {
-                    detectHorizontalDragGestures { change, _ ->
+                    detectHorizontalDragGestures(
+                        onDragStart = { isDragging.value = true },
+                        onDragEnd   = { isDragging.value = false },
+                        onDragCancel = { isDragging.value = false },
+                    ) { change, _ ->
                         change.consume()
-                        isDragging.value = true
                         onSeek(((change.position.x / size.width) * safeDuration).toLong())
                     }
                 }
         ) {
             val trackTop = size.height / 2 - trackTopOffset
-            val fillEnd = animProgress * size.width
+            val fillEnd = displayed.value * size.width
 
             // Track background
             drawRoundRect(
