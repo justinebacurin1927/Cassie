@@ -10,6 +10,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
@@ -64,6 +65,10 @@ object SkipperEngine {
     @Volatile var isPartyMode: Boolean = false
         private set
 
+    /** Source of truth for whether music is currently playing. */
+    @Volatile var isActivelyPlaying: Boolean = false
+        private set
+
     @Volatile private var initialized = false
 
     fun init(context: Context) {
@@ -87,6 +92,19 @@ object SkipperEngine {
             scope.launch {
                 UserEventStream.events.collect { event ->
                     handleEvent(event)
+                }
+            }
+
+            // Live auto-rotation: pick a fresh line every few
+            // seconds, regardless of user input. This is what makes
+            // the card feel "alive" — even when nothing's happening
+            // Skipper is still finding new things to notice.
+            scope.launch {
+                while (true) {
+                    delay(AUTO_ROTATE_MS)
+                    if (initialized) {
+                        regenerateLine(force = false, reason = "auto_tick")
+                    }
                 }
             }
         }
@@ -113,10 +131,19 @@ object SkipperEngine {
             else -> { /* no tracker side-effect */ }
         }
 
-        // 3. party-mode flag tracking (for the SlotContext)
-        if (event is UserEvent.PartyModeToggled) {
-            isPartyMode = event.enabled
-        }
+            // 3. party-mode flag tracking (for the SlotContext)
+            if (event is UserEvent.PartyModeToggled) {
+                isPartyMode = event.enabled
+            }
+            // 3b. playback-state tracking (for isActivelyPlaying)
+            when (event) {
+                is UserEvent.SongResumed -> isActivelyPlaying = true
+                is UserEvent.SongPaused,
+                is UserEvent.AppBackgrounded -> isActivelyPlaying = false
+                is UserEvent.SongStarted -> isActivelyPlaying = true
+                is UserEvent.SongCompleted -> isActivelyPlaying = false
+                else -> { /* unchanged */ }
+            }
 
         // 4. fold into running stats
         recognizer.applyEvent(stats, event)
@@ -212,6 +239,7 @@ object SkipperEngine {
             sessionMinutes = ((now - stats.currentSessionStartMs) / 60_000L).toInt(),
             hourOfDay = Calendar.getInstance().get(Calendar.HOUR_OF_DAY),
             isPartyMode = isPartyMode,
+            isActivelyPlaying = isActivelyPlaying,
             recentSkipRate = stats.recentSkipRate,
             recentSkips = stats.recentSkips,
             activePatterns = _currentPatterns.value,
@@ -240,4 +268,11 @@ object SkipperEngine {
     }
 
     private const val LINE_COOLDOWN_MS = 3_000L
+
+    /**
+     * How often the auto-rotation ticker tries to swap to a new
+     * line, in milliseconds. 6s gives the user enough time to read
+     * a line before it changes, but keeps the card feeling alive.
+     */
+    private const val AUTO_ROTATE_MS = 6_000L
 }

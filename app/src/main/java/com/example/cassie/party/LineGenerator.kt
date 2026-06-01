@@ -203,6 +203,7 @@ class LineGenerator {
         "totalFavorites" -> ctx.totalFavorites.toLong()
         "totalLyricsOpens" -> ctx.totalLyricsOpens.toLong()
         "uniqueSongsListened" -> ctx.uniqueSongsListened.toLong()
+        "recentSkipsCount" -> ctx.recentSkips.count { it }.toLong()
         else -> 0L
     }
 

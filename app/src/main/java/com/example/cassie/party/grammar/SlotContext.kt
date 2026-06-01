@@ -32,6 +32,13 @@ data class SlotContext(
     /** 0..23, local time. */
     val hourOfDay: Int = 12,
     val isPartyMode: Boolean = false,
+    /**
+     * True if the user is currently playing music (not paused, not
+     * stopped, app likely foregrounded). Rules that reference
+     * "listening" should use this. Rules about being "quiet" or
+     * "idle" should require it to be FALSE.
+     */
+    val isActivelyPlaying: Boolean = false,
 
     // ── Detection (from the recognizer) ──
     /** Recent-window skip rate, 0.0..1.0. */

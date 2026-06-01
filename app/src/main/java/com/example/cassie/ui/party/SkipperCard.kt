@@ -1,14 +1,19 @@
 package com.example.cassie.ui.party
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,27 +29,37 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.cassie.R
+import com.example.cassie.party.MascotIntent
 import com.example.cassie.party.SkipperEngine
 import com.example.cassie.party.SkipperLine
 import com.example.cassie.party.SkipperMood
+import com.example.cassie.party.UserPatternType
 
-// ── Palette (matches MascotMoodCard) ──────────────────────────────
+// ── Palette (matches the rest of the app) ────────────────────────
 private val CardGrey      = Color(0xFF1E1E1E)
 private val TextPrimary   = Color.White
 private val TextDim       = Color.White.copy(alpha = 0.35f)
 private val PurpleAccent  = Color(0xFFBB86FC)
 private val TealAccent    = Color(0xFF03DAC5)
+private val LivePink      = Color(0xFFFF4081)
 
 /**
- * The real Skipper card. Shows the current generated line, the
- * penguin mascot, and reacts to taps by asking the engine for a new
- * line. This replaces [SkipperDebugCard] in production builds.
+ * The live Skipper card.
+ *
+ * Auto-updates every 6 seconds (driven by [SkipperEngine]'s
+ * rotation coroutine) and also reacts to user behavior events
+ * (skips, loops, party mode, etc.) immediately.
+ *
+ * NOT clickable. The card is a passive display — the user doesn't
+ * need to do anything. Skipper just keeps talking.
  *
  * Visual structure:
- *  - Full-bleed dark card, rounded corners (matches MascotMoodCard)
+ *  - Full-bleed dark card, rounded corners
  *  - Right side: penguin illustration (mood-driven)
- *  - Left side: small label (intent) + the line itself
- *  - Bottom-right: tiny "tap" hint so the user knows it's tappable
+ *  - Left side: live-dot · intent label · pattern tag · the line
+ *  - The line crossfades when it changes
+ *  - A small pulsing "live" dot in the top-left to communicate
+ *    that this is a feed, not a one-shot quote
  */
 @Composable
 fun SkipperCard(
@@ -53,12 +68,23 @@ fun SkipperCard(
     val line by SkipperEngine.currentLine.collectAsState()
     val patterns by SkipperEngine.currentPatterns.collectAsState()
 
+    // Live pulse animation for the "live" dot
+    val infinite = rememberInfiniteTransition(label = "live_pulse")
+    val pulseAlpha by infinite.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1100, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "pulse_alpha",
+    )
+
     Box(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(CardGrey)
-            .clickable { SkipperEngine.refreshLine() },
+            .background(CardGrey),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -68,11 +94,19 @@ fun SkipperCard(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = 16.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
+                    .padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
                 verticalArrangement = Arrangement.Center,
             ) {
-                // top label: intent + active pattern (if any)
+                // Top row: live dot + intent label + pattern tag
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Live indicator dot (pulsing)
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(LivePink.copy(alpha = pulseAlpha)),
+                    )
+                    Spacer(Modifier.width(6.dp))
                     Text(
                         text = line?.intentLabel() ?: "SKIPPER",
                         color = PurpleAccent,
@@ -92,13 +126,13 @@ fun SkipperCard(
                     }
                 }
 
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
 
-                // the actual line, with a crossfade when it changes
+                // The actual line, with a crossfade when it changes
                 AnimatedContent(
                     targetState = line?.text ?: "...",
                     transitionSpec = {
-                        (fadeIn(tween(220)) togetherWith fadeOut(tween(180)))
+                        (fadeIn(tween(280)) togetherWith fadeOut(tween(220)))
                     },
                     label = "skipper_line_swap",
                     modifier = Modifier.fillMaxWidth(),
@@ -127,39 +161,29 @@ fun SkipperCard(
                 )
             }
         }
-
-        // ── tap hint at bottom-right ───────────────────────────────
-        Text(
-            text = "tap to refresh",
-            color = TextDim,
-            fontSize = 9.sp,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 110.dp, bottom = 6.dp),
-        )
     }
 }
 
 // ── Mapping helpers (kept here so the UI is self-contained) ───────
 
 private fun SkipperLine.intentLabel(): String = when (intent) {
-    com.example.cassie.party.MascotIntent.OBSERVE -> "SKIPPER · noticing"
-    com.example.cassie.party.MascotIntent.ROAST -> "SKIPPER · roasting"
-    com.example.cassie.party.MascotIntent.PRAISE -> "SKIPPER · hyping"
-    com.example.cassie.party.MascotIntent.CONFESS -> "SKIPPER · venting"
-    com.example.cassie.party.MascotIntent.QUESTION -> "SKIPPER · asking"
+    MascotIntent.OBSERVE -> "SKIPPER · noticing"
+    MascotIntent.ROAST -> "SKIPPER · roasting"
+    MascotIntent.PRAISE -> "SKIPPER · hyping"
+    MascotIntent.CONFESS -> "SKIPPER · thinking"
+    MascotIntent.QUESTION -> "SKIPPER · asking"
 }
 
-private fun com.example.cassie.party.UserPatternType.shortName(): String = when (this) {
-    com.example.cassie.party.UserPatternType.SKIPPER -> "skipper"
-    com.example.cassie.party.UserPatternType.LOOPER -> "looper"
-    com.example.cassie.party.UserPatternType.REPEATER -> "repeater"
-    com.example.cassie.party.UserPatternType.MARATHONER -> "marathoner"
-    com.example.cassie.party.UserPatternType.PARTIER -> "partier"
-    com.example.cassie.party.UserPatternType.EXPLORER -> "explorer"
-    com.example.cassie.party.UserPatternType.NIGHT_OWL -> "night owl"
-    com.example.cassie.party.UserPatternType.FAVORITE_HOARDER -> "hoarder"
-    com.example.cassie.party.UserPatternType.LYRICS_LOVER -> "lyric reader"
+private fun UserPatternType.shortName(): String = when (this) {
+    UserPatternType.SKIPPER -> "skipper"
+    UserPatternType.LOOPER -> "looper"
+    UserPatternType.REPEATER -> "repeater"
+    UserPatternType.MARATHONER -> "marathoner"
+    UserPatternType.PARTIER -> "partier"
+    UserPatternType.EXPLORER -> "explorer"
+    UserPatternType.NIGHT_OWL -> "night owl"
+    UserPatternType.FAVORITE_HOARDER -> "hoarder"
+    UserPatternType.LYRICS_LOVER -> "lyric reader"
 }
 
 private fun SkipperMood.penguinDrawable(): Int = when (this) {

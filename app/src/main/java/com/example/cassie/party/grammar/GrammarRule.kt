@@ -70,4 +70,10 @@ data class ContextFilter(
     val requiresLooping: Boolean = false,
     /** Only fire if currentMinutesListened >= this. */
     val minMinutesOnCurrentSong: Int = 0,
+    /**
+     * If true, only fire when the user is actively playing music.
+     * If false, only fire when the user is NOT playing (e.g. lines
+     * about being "quiet" or "idle"). If null, doesn't care.
+     */
+    val requiresActivePlayback: Boolean? = null,
 )

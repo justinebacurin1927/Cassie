@@ -314,14 +314,9 @@ private fun ContentDashboard(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 contentPadding = PaddingValues(bottom = 4.dp)
             ) {
-                // ── Mascot Mood Card + Skipper card (scrolls with content) ──
+                // ── Skipper card (live, auto-updating) ──
                 item {
                     Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
-                        MascotMoodCard(playbackManager = playbackManager)
-                        Spacer(Modifier.height(12.dp))
-                        // Skipper card — generated personality lines
-                        // driven by user behavior patterns. Tap to
-                        // ask for a new line.
                         SkipperCard()
                         Spacer(Modifier.height(12.dp))
                     }

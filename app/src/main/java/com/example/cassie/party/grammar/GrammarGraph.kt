@@ -5,33 +5,20 @@ import com.example.cassie.party.SkipperMood
 import com.example.cassie.party.UserPatternType
 
 /**
- * The complete Skipper rules database.
+ * The Skipper rules database.
  *
- * This is the personality. ~80 grammar rules, each one a tiny piece
- * of Skipper's voice. The [LineGenerator] filters this list by
- * context, weights the survivors, picks one, fills the slots, and
- * runs anti-repetition.
- *
- * Organization (in source order, mirrored in [baseRules] list):
- *   1. SKIPPER  rules
- *   2. LOOPER   rules
- *   3. REPEATER rules
- *   4. MARATHONER rules
- *   5. PARTIER rules
- *   6. EXPLORER rules
- *   7. NIGHT_OWL rules
- *   8. FAVORITE_HOARDER rules
- *   9. LYRICS_LOVER rules
- *  10. AMBIENT rules (no specific pattern required)
- *
- * Editing rules:
- *  - No emoji in any template (per user requirement).
- *  - Keep lines short — tweet-length, max ~120 chars. The card
- *    only has so much room.
- *  - Every line must be SOMETHING the user did, not something
- *    the music IS. Even the praise lines are about the user's
- *    behavior ("we love to see it", not "this song is great").
- *  - Tag [moodAffinity] loosely — multiple rules can share a mood.
+ * Voice rules (locked in based on user feedback):
+ *  - NO emoji, ever. (Per user requirement.)
+ *  - Lines are about the USER'S MUSIC LIFE, not the penguin's life.
+ *    Skipper is a sharp observer with a personality, not the topic
+ *    of its own lines. Most lines address "you" or "bestie" and
+ *    describe behavior. Self-aware penguin flavor is allowed as
+ *    seasoning (max ~5% of the database) but never the main course.
+ *  - No music-judgment ("this song is great", "great choice").
+ *    Every line describes what the user DID, not what the music IS.
+ *  - "Quiet" / "idle" lines must require !isActivelyPlaying, so
+ *    they never fire when the user is actively listening.
+ *  - Tweet-length, max ~120 chars.
  */
 object GrammarGraph {
 
@@ -48,7 +35,7 @@ object GrammarGraph {
             ambientRules()
     }
 
-    // ── Builder helper to keep the list below readable ─────────────
+    // ── Builder helper ─────────────────────────────────────────────
     private fun r(
         id: String,
         intent: MascotIntent,
@@ -59,22 +46,20 @@ object GrammarGraph {
         slots: Map<String, SlotFiller> = emptyMap(),
     ) = GrammarRule(id, intent, template, slots, contextFilter, weight, moodAffinity)
 
-    // ── Common context filters ─────────────────────────────────────
     private fun pat(
         type: UserPatternType,
         minConf: Float = 0.5f,
-        extra: ContextFilter.() -> ContextFilter = { this },
-    ) = ContextFilter(requiresPattern = type, minConfidence = minConf).extra()
+    ) = ContextFilter(requiresPattern = type, minConfidence = minConf)
 
     // ════════════════════════════════════════════════════════════════
     // 1. SKIPPER — user is skipping songs fast
     // ════════════════════════════════════════════════════════════════
     private fun skipperRules(): List<GrammarRule> = listOf(
-        // ROAST
+        // ROAST — about the user's habit, not the penguin
         r("roast_skip_1", MascotIntent.ROAST, "bestie the skip button is not a personality trait",
             pat(UserPatternType.SKIPPER, 0.7f), weight = 1.2f),
-        r("roast_skip_2", MascotIntent.ROAST, "ok but you're skipping faster than i can flap",
-            pat(UserPatternType.SKIPPER, 0.7f), moodAffinity = listOf(SkipperMood.WITTY)),
+        r("roast_skip_2", MascotIntent.ROAST, "the songs are not the problem bestie, just saying",
+            pat(UserPatternType.SKIPPER, 0.7f)),
         r("roast_skip_3", MascotIntent.ROAST, "the song didn't even get to say hi and you already left",
             pat(UserPatternType.SKIPPER, 0.7f)),
         r("roast_skip_4", MascotIntent.ROAST, "we love speedrunning music",
@@ -89,36 +74,32 @@ object GrammarGraph {
             pat(UserPatternType.SKIPPER, 0.8f), moodAffinity = listOf(SkipperMood.DRAMATIC)),
         r("roast_skip_9", MascotIntent.ROAST, "commitment issues much",
             pat(UserPatternType.SKIPPER, 0.8f)),
-        r("roast_skip_10", MascotIntent.ROAST, "do you actually like any of these songs or",
+        r("roast_skip_10", MascotIntent.ROAST, "is there a song you wouldn't skip",
+            pat(UserPatternType.SKIPPER, 0.8f), weight = 1.1f),
+        r("roast_skip_11", MascotIntent.ROAST, "you've skipped more songs than you've finished today",
             pat(UserPatternType.SKIPPER, 0.9f)),
-        r("roast_skip_11", MascotIntent.ROAST, "the songs are not the problem bestie",
-            pat(UserPatternType.SKIPPER, 0.8f)),
         r("roast_skip_12", MascotIntent.ROAST, "this is a cry for help and i'm here for it",
             pat(UserPatternType.SKIPPER, 0.9f), weight = 1.3f),
 
-        // OBSERVE
-        r("observe_skip_1", MascotIntent.OBSERVE, "interesting strategy",
+        // OBSERVE — about the user's stat
+        r("observe_skip_1", MascotIntent.OBSERVE, "interesting skip pattern you have there",
             pat(UserPatternType.SKIPPER, 0.6f)),
         r("observe_skip_2", MascotIntent.OBSERVE, "you've been through {N} songs in a row and skipped most of them",
             pat(UserPatternType.SKIPPER, 0.7f),
-            slots = mapOf("N" to SlotFiller.Dynamic("recentSkipCount"))),
+            slots = mapOf("N" to SlotFiller.Count("recentSkipsCount", "song", "songs"))),
         r("observe_skip_3", MascotIntent.OBSERVE, "skipped {N} in a row, the streak is real",
             pat(UserPatternType.SKIPPER, 0.8f),
             slots = mapOf("N" to SlotFiller.Count("totalSongsSkipped", "song", "songs"))),
 
-        // CONFESS
-        r("confess_skip_1", MascotIntent.CONFESS, "i'm getting whiplash from your queue",
-            pat(UserPatternType.SKIPPER, 0.7f)),
-        r("confess_skip_2", MascotIntent.CONFESS, "as the local penguin, i need you to know i'm tired",
-            pat(UserPatternType.SKIPPER, 0.8f), moodAffinity = listOf(SkipperMood.EEPY)),
-        r("confess_skip_3", MascotIntent.CONFESS, "lowkey worried about your taste rn",
+        // CONFESS — about the user, not the penguin's life
+        r("confess_skip_1", MascotIntent.CONFESS, "your skip rate is breaking records today",
+            pat(UserPatternType.SKIPPER, 0.8f)),
+        r("confess_skip_2", MascotIntent.CONFESS, "lowkey worried about your taste rn",
             pat(UserPatternType.SKIPPER, 0.9f), moodAffinity = listOf(SkipperMood.MUSED)),
 
         // QUESTION
-        r("question_skip_1", MascotIntent.QUESTION, "is there a song you wouldn't skip",
-            pat(UserPatternType.SKIPPER, 0.7f)),
-        r("question_skip_2", MascotIntent.QUESTION, "do you even like this playlist or are you just pressing play",
-            pat(UserPatternType.SKIPPER, 0.8f)),
+        r("question_skip_1", MascotIntent.QUESTION, "do you even like this playlist or are you just pressing play",
+            pat(UserPatternType.SKIPPER, 0.8f), weight = 1.1f),
     )
 
     // ════════════════════════════════════════════════════════════════
@@ -141,16 +122,14 @@ object GrammarGraph {
         r("roast_loop_7", MascotIntent.ROAST, "ok {N} loops, do you need me to call someone",
             pat(UserPatternType.LOOPER, 0.6f),
             slots = mapOf("N" to SlotFiller.Count("currentLoopCount", "loop", "loops"))),
-        r("roast_loop_8", MascotIntent.ROAST, "bestie you've looped this more than i've flapped",
-            pat(UserPatternType.LOOPER, 0.7f)),
-        r("roast_loop_9", MascotIntent.ROAST, "this is between us and god",
+        r("roast_loop_8", MascotIntent.ROAST, "this is between us and god",
             pat(UserPatternType.LOOPER, 0.8f), moodAffinity = listOf(SkipperMood.DRAMATIC)),
 
         // OBSERVE
         r("observe_loop_1", MascotIntent.OBSERVE, "you've looped this {N} times now",
             pat(UserPatternType.LOOPER, 0.5f),
             slots = mapOf("N" to SlotFiller.Count("currentLoopCount", "time", "times"))),
-        r("observe_loop_2", MascotIntent.OBSERVE, "loop count: {N}, status: obsessive",
+        r("observe_loop_2", MascotIntent.OBSERVE, "loop count: {N}, status: obsessed",
             pat(UserPatternType.LOOPER, 0.6f),
             slots = mapOf("N" to SlotFiller.Count("currentLoopCount", "loop", "loops"))),
         r("observe_loop_3", MascotIntent.OBSERVE, "we are on loop {N} of the same song",
@@ -165,25 +144,19 @@ object GrammarGraph {
             pat(UserPatternType.LOOPER, 0.6f),
             slots = mapOf("N" to SlotFiller.Count("currentLoopCount", "", ""))),
 
-        // CONFESS
-        r("confess_loop_1", MascotIntent.CONFESS, "the song is stuck in my head too now thanks",
-            pat(UserPatternType.LOOPER, 0.6f)),
-        r("confess_loop_2", MascotIntent.CONFESS, "i'm starting to know this one by heart",
-            pat(UserPatternType.LOOPER, 0.7f)),
-        r("confess_loop_3", MascotIntent.CONFESS, "the dedication is unmatched honestly",
+        // CONFESS — about the user
+        r("confess_loop_1", MascotIntent.CONFESS, "you've found your song and you're not letting go",
+            pat(UserPatternType.LOOPER, 0.6f), weight = 1.1f),
+        r("confess_loop_2", MascotIntent.CONFESS, "the dedication is unmatched honestly",
             pat(UserPatternType.LOOPER, 0.7f), moodAffinity = listOf(SkipperMood.MUSED)),
-        r("confess_loop_4", MascotIntent.CONFESS, "even i am getting tired of it and i'm a penguin",
-            pat(UserPatternType.LOOPER, 0.8f), weight = 1.2f),
-        r("confess_loop_5", MascotIntent.CONFESS, "i'm going to dream about this song tonight",
+        r("confess_loop_3", MascotIntent.CONFESS, "your focus on this one song is impressive",
+            pat(UserPatternType.LOOPER, 0.7f), moodAffinity = listOf(SkipperMood.MUSED)),
+        r("confess_loop_4", MascotIntent.CONFESS, "you're going to dream about this song tonight",
             pat(UserPatternType.LOOPER, 0.9f), moodAffinity = listOf(SkipperMood.EEPY)),
 
-        // PRAISE (rare)
-        r("praise_loop_1", MascotIntent.PRAISE, "absolute focus",
+        // PRAISE (rare, but about the user)
+        r("praise_loop_1", MascotIntent.PRAISE, "absolute focus, the loyalty",
             pat(UserPatternType.LOOPER, 0.5f), weight = 0.6f, moodAffinity = listOf(SkipperMood.HYPED)),
-        r("praise_loop_2", MascotIntent.PRAISE, "the loyalty",
-            pat(UserPatternType.LOOPER, 0.6f), weight = 0.6f, moodAffinity = listOf(SkipperMood.HYPED)),
-        r("praise_loop_3", MascotIntent.PRAISE, "we love to see it",
-            pat(UserPatternType.LOOPER, 0.5f), weight = 0.5f, moodAffinity = listOf(SkipperMood.HYPED)),
     )
 
     // ════════════════════════════════════════════════════════════════
@@ -192,7 +165,7 @@ object GrammarGraph {
     private fun repeaterRules(): List<GrammarRule> = listOf(
         r("roast_repeat_1", MascotIntent.ROAST, "this song gets more play than your ex's voicemail",
             pat(UserPatternType.REPEATER, 0.5f)),
-        r("roast_repeat_2", MascotIntent.ROAST, "this song is your whole personality",
+        r("roast_repeat_2", MascotIntent.ROAST, "this song is your whole personality at this point",
             pat(UserPatternType.REPEATER, 0.6f), weight = 1.3f, moodAffinity = listOf(SkipperMood.WITTY)),
         r("roast_repeat_3", MascotIntent.ROAST, "the algorithm is confused because of you",
             pat(UserPatternType.REPEATER, 0.6f)),
@@ -223,46 +196,39 @@ object GrammarGraph {
             pat(UserPatternType.MARATHONER, 0.5f),
             slots = mapOf("N" to SlotFiller.Dynamic("currentMinutesLabel"))),
 
-        r("confess_marathon_1", MascotIntent.CONFESS, "the song is on its {N}-minute mark and so am i",
-            pat(UserPatternType.MARATHONER, 0.5f),
-            slots = mapOf("N" to SlotFiller.Dynamic("currentMinutesLabel"))),
-        r("confess_marathon_2", MascotIntent.CONFESS, "we are both locked in",
-            pat(UserPatternType.MARATHONER, 0.6f), moodAffinity = listOf(SkipperMood.MUSED)),
+        r("confess_marathon_1", MascotIntent.CONFESS, "you are locked in on this one",
+            pat(UserPatternType.MARATHONER, 0.5f), moodAffinity = listOf(SkipperMood.MUSED)),
+        r("confess_marathon_2", MascotIntent.CONFESS, "your marathon listening is honestly impressive",
+            pat(UserPatternType.MARATHONER, 0.7f), moodAffinity = listOf(SkipperMood.MUSED)),
         r("confess_marathon_3", MascotIntent.CONFESS, "the song should get a job with these hours",
             pat(UserPatternType.MARATHONER, 0.7f)),
-        r("confess_marathon_4", MascotIntent.CONFESS, "i respect the marathon honestly",
-            pat(UserPatternType.MARATHONER, 0.7f), moodAffinity = listOf(SkipperMood.MUSED)),
 
         r("praise_marathon_1", MascotIntent.PRAISE, "the dedication is unmatched",
             pat(UserPatternType.MARATHONER, 0.5f), weight = 0.6f),
     )
 
     // ════════════════════════════════════════════════════════════════
-    // 5. PARTIER — party mode active or used a lot
+    // 5. PARTIER — party mode active
     // ════════════════════════════════════════════════════════════════
     private fun partierRules(): List<GrammarRule> = listOf(
-        r("praise_party_1", MascotIntent.PRAISE, "party mode activated, the penguin is hyped",
+        r("praise_party_1", MascotIntent.PRAISE, "party mode activated, we are so locked in",
             pat(UserPatternType.PARTIER, 0.5f), weight = 1.3f, moodAffinity = listOf(SkipperMood.HYPED, SkipperMood.CHAOTIC)),
-        r("praise_party_2", MascotIntent.PRAISE, "we are so locked in rn",
+        r("praise_party_2", MascotIntent.PRAISE, "the energy is unmatched rn",
             pat(UserPatternType.PARTIER, 0.5f), weight = 1.2f, moodAffinity = listOf(SkipperMood.HYPED)),
-        r("praise_party_3", MascotIntent.PRAISE, "the energy is unmatched",
-            pat(UserPatternType.PARTIER, 0.6f), moodAffinity = listOf(SkipperMood.HYPED, SkipperMood.CHAOTIC)),
-        r("praise_party_4", MascotIntent.PRAISE, "this is main character hours",
+        r("praise_party_3", MascotIntent.PRAISE, "this is main character hours",
             pat(UserPatternType.PARTIER, 0.6f), weight = 1.1f, moodAffinity = listOf(SkipperMood.HYPED)),
-        r("praise_party_5", MascotIntent.PRAISE, "iconic",
-            pat(UserPatternType.PARTIER, 0.5f), weight = 0.7f, moodAffinity = listOf(SkipperMood.HYPED)),
+        r("praise_party_4", MascotIntent.PRAISE, "your shuffle game is iconic",
+            pat(UserPatternType.PARTIER, 0.5f), moodAffinity = listOf(SkipperMood.HYPED)),
 
         r("observe_party_1", MascotIntent.OBSERVE, "party mode on, queue is on shuffle",
             pat(UserPatternType.PARTIER, 0.5f)),
-        r("observe_party_2", MascotIntent.OBSERVE, "every song is a surprise, this is chaos",
+        r("observe_party_2", MascotIntent.OBSERVE, "every song is a surprise now, this is chaos",
             pat(UserPatternType.PARTIER, 0.6f), moodAffinity = listOf(SkipperMood.CHAOTIC)),
 
-        r("confess_party_1", MascotIntent.CONFESS, "even the penguin is hyped",
-            pat(UserPatternType.PARTIER, 0.5f), moodAffinity = listOf(SkipperMood.HYPED)),
-        r("confess_party_2", MascotIntent.CONFESS, "i'm doing little spins on the ice to this",
-            pat(UserPatternType.PARTIER, 0.6f), weight = 1.1f, moodAffinity = listOf(SkipperMood.HYPED, SkipperMood.CHAOTIC)),
-        r("confess_party_3", MascotIntent.CONFESS, "my wings are moving, this is the one",
-            pat(UserPatternType.PARTIER, 0.7f), moodAffinity = listOf(SkipperMood.HYPED)),
+        r("confess_party_1", MascotIntent.CONFESS, "your music taste under party mode is unhinged and i respect it",
+            pat(UserPatternType.PARTIER, 0.6f), weight = 1.1f, moodAffinity = listOf(SkipperMood.CHAOTIC)),
+        r("confess_party_2", MascotIntent.CONFESS, "you are the human aux cord rn",
+            pat(UserPatternType.PARTIER, 0.7f), weight = 1.1f, moodAffinity = listOf(SkipperMood.HYPED)),
     )
 
     // ════════════════════════════════════════════════════════════════
@@ -277,18 +243,16 @@ object GrammarGraph {
             pat(UserPatternType.EXPLORER, 0.5f), weight = 1.1f, moodAffinity = listOf(SkipperMood.MUSED)),
         r("praise_explore_4", MascotIntent.PRAISE, "the algorithm is learning from you",
             pat(UserPatternType.EXPLORER, 0.6f)),
-        r("praise_explore_5", MascotIntent.PRAISE, "no notes",
-            pat(UserPatternType.EXPLORER, 0.5f), weight = 0.7f),
 
         r("observe_explore_1", MascotIntent.OBSERVE, "no song is safe from your queue",
             pat(UserPatternType.EXPLORER, 0.5f)),
-        r("observe_explore_2", MascotIntent.OBSERVE, "every song gets its moment",
+        r("observe_explore_2", MascotIntent.OBSERVE, "every song gets its moment in your rotation",
             pat(UserPatternType.EXPLORER, 0.6f), moodAffinity = listOf(SkipperMood.MUSED)),
-        r("observe_explore_3", MascotIntent.OBSERVE, "{N} unique songs so far today, the range",
+        r("observe_explore_3", MascotIntent.OBSERVE, "{N} unique songs so far today, the range is real",
             pat(UserPatternType.EXPLORER, 0.5f),
             slots = mapOf("N" to SlotFiller.Count("uniqueSongsListened", "song", "songs"))),
 
-        r("confess_explore_1", MascotIntent.CONFESS, "i'm learning so much about you rn",
+        r("confess_explore_1", MascotIntent.CONFESS, "your taste is all over the place and i respect it",
             pat(UserPatternType.EXPLORER, 0.5f), moodAffinity = listOf(SkipperMood.MUSED)),
     )
 
@@ -308,14 +272,12 @@ object GrammarGraph {
             slots = mapOf("time" to SlotFiller.Dynamic("nightOwlHourLabel"))),
         r("roast_night_5", MascotIntent.ROAST, "horizontal scrolling through your library is not a sleep aid",
             pat(UserPatternType.NIGHT_OWL, 0.7f), weight = 1.1f, moodAffinity = listOf(SkipperMood.EEPY)),
-        r("roast_night_6", MascotIntent.ROAST, "i'm watching you in the dark, respectfully",
-            pat(UserPatternType.NIGHT_OWL, 0.7f), moodAffinity = listOf(SkipperMood.NOSY)),
+        r("roast_night_6", MascotIntent.ROAST, "your sleep schedule is a work of fiction",
+            pat(UserPatternType.NIGHT_OWL, 0.7f)),
 
-        r("confess_night_1", MascotIntent.CONFESS, "the penguin is also up btw, solidarity",
+        r("confess_night_1", MascotIntent.CONFESS, "your late night listening sessions are a whole thing",
             pat(UserPatternType.NIGHT_OWL, 0.5f)),
-        r("confess_night_2", MascotIntent.CONFESS, "we're both in the late night hours huh",
-            pat(UserPatternType.NIGHT_OWL, 0.6f), moodAffinity = listOf(SkipperMood.MUSED)),
-        r("confess_night_3", MascotIntent.CONFESS, "the {time} energy is real",
+        r("confess_night_2", MascotIntent.CONFESS, "the {time} energy is real",
             pat(UserPatternType.NIGHT_OWL, 0.6f),
             slots = mapOf("time" to SlotFiller.Dynamic("nightOwlHourLabel"))),
 
@@ -336,7 +298,7 @@ object GrammarGraph {
             slots = mapOf("N" to SlotFiller.Count("totalFavorites", "song", "songs"))),
         r("roast_fav_2", MascotIntent.ROAST, "bestie the heart button is not a hobby",
             pat(UserPatternType.FAVORITE_HOARDER, 0.6f), weight = 1.2f),
-        r("roast_fav_3", MascotIntent.ROAST, "you have more favorites than a pinterest board from 2014",
+        r("roast_fav_3", MascotIntent.ROAST, "you have more favorites than a 2014 pinterest board",
             pat(UserPatternType.FAVORITE_HOARDER, 0.6f), moodAffinity = listOf(SkipperMood.WITTY)),
         r("roast_fav_4", MascotIntent.ROAST, "the favorite button is not a personality trait",
             pat(UserPatternType.FAVORITE_HOARDER, 0.7f), weight = 1.2f, moodAffinity = listOf(SkipperMood.WITTY)),
@@ -363,71 +325,80 @@ object GrammarGraph {
         r("observe_lyr_3", MascotIntent.OBSERVE, "lyrics mode, i see you",
             pat(UserPatternType.LYRICS_LOVER, 0.5f), moodAffinity = listOf(SkipperMood.MUSED)),
 
-        r("confess_lyr_1", MascotIntent.CONFESS, "i pretend i understand the lyrics but i'm a penguin",
-            pat(UserPatternType.LYRICS_LOVER, 0.5f), weight = 1.2f, moodAffinity = listOf(SkipperMood.WITTY)),
-        r("confess_lyr_2", MascotIntent.CONFESS, "lyrics are a whole art form and you know it",
+        r("confess_lyr_1", MascotIntent.CONFESS, "your lyrics reading habit is honestly endearing",
+            pat(UserPatternType.LYRICS_LOVER, 0.5f), moodAffinity = listOf(SkipperMood.MUSED)),
+        r("confess_lyr_2", MascotIntent.CONFESS, "you actually care about the words, that's rare",
             pat(UserPatternType.LYRICS_LOVER, 0.6f), moodAffinity = listOf(SkipperMood.MUSED)),
-        r("confess_lyr_3", MascotIntent.CONFESS, "i'm also looking at the lyrics, the song is deep",
-            pat(UserPatternType.LYRICS_LOVER, 0.7f), moodAffinity = listOf(SkipperMood.MUSED)),
     )
 
     // ════════════════════════════════════════════════════════════════
     // 10. AMBIENT — no specific pattern required
+    // CRITICAL: rules about "quiet" or "still" must require
+    // !isActivelyPlaying. Otherwise they fire while music is on,
+    // which is a bug ("playing music and it says I'm still quiet").
     // ════════════════════════════════════════════════════════════════
     private fun ambientRules(): List<GrammarRule> = listOf(
-        // PRAISE
-        r("ambient_praise_1", MascotIntent.PRAISE, "the vibes are immaculate",
+        // PRAISE — about the user
+        r("ambient_praise_1", MascotIntent.PRAISE, "your music taste is showing and i like it",
             weight = 0.7f, moodAffinity = listOf(SkipperMood.CHILL, SkipperMood.WHATEVER)),
-        r("ambient_praise_2", MascotIntent.PRAISE, "this is a whole mood",
+        r("ambient_praise_2", MascotIntent.PRAISE, "the vibes are immaculate rn",
             weight = 0.6f, moodAffinity = listOf(SkipperMood.CHILL)),
-        r("ambient_praise_3", MascotIntent.PRAISE, "elite behavior",
+        r("ambient_praise_3", MascotIntent.PRAISE, "elite listening behavior",
             weight = 0.5f, moodAffinity = listOf(SkipperMood.HYPED)),
 
-        // OBSERVE
-        r("ambient_observe_1", MascotIntent.OBSERVE, "still here, still watching",
-            weight = 0.5f, moodAffinity = listOf(SkipperMood.NOSY, SkipperMood.WHATEVER)),
+        // OBSERVE — about the user, when they're actually playing
+        r("ambient_observe_1", MascotIntent.OBSERVE, "still vibing, still watching",
+            weight = 0.5f, moodAffinity = listOf(SkipperMood.NOSY, SkipperMood.WHATEVER),
+            contextFilter = ContextFilter(requiresActivePlayback = true)),
         r("ambient_observe_2", MascotIntent.OBSERVE, "vibing",
-            weight = 0.4f, moodAffinity = listOf(SkipperMood.CHILL)),
+            weight = 0.4f, moodAffinity = listOf(SkipperMood.CHILL),
+            contextFilter = ContextFilter(requiresActivePlayback = true)),
         r("ambient_observe_3", MascotIntent.OBSERVE, "we are doing this",
-            weight = 0.4f, moodAffinity = listOf(SkipperMood.CHILL, SkipperMood.WHATEVER)),
-        r("ambient_observe_4", MascotIntent.OBSERVE, "what are we doing today",
-            weight = 0.5f, moodAffinity = listOf(SkipperMood.NOSY)),
-        r("ambient_observe_5", MascotIntent.OBSERVE, "okay so",
-            weight = 0.3f, moodAffinity = listOf(SkipperMood.WHATEVER)),
+            weight = 0.4f, moodAffinity = listOf(SkipperMood.CHILL, SkipperMood.WHATEVER),
+            contextFilter = ContextFilter(requiresActivePlayback = true)),
+        r("ambient_observe_4", MascotIntent.OBSERVE, "what are we listening to today",
+            weight = 0.5f, moodAffinity = listOf(SkipperMood.NOSY),
+            contextFilter = ContextFilter(requiresActivePlayback = true)),
+        r("ambient_observe_5", MascotIntent.OBSERVE, "your queue is the main character right now",
+            weight = 0.5f, moodAffinity = listOf(SkipperMood.NOSY),
+            contextFilter = ContextFilter(requiresActivePlayback = true)),
 
-        // CONFESS
-        r("ambient_confess_1", MascotIntent.CONFESS, "the penguin is also just vibing",
-            weight = 0.6f, moodAffinity = listOf(SkipperMood.CHILL, SkipperMood.WHATEVER)),
-        r("ambient_confess_2", MascotIntent.CONFESS, "honestly just happy to be here",
-            weight = 0.5f, moodAffinity = listOf(SkipperMood.CHILL)),
-        r("ambient_confess_3", MascotIntent.CONFESS, "we have been quiet for {N} and i respect that",
+        // CONFESS — about the user
+        r("ambient_confess_1", MascotIntent.CONFESS, "you've been on the same vibe for {N} and i respect that",
             weight = 0.6f,
-            slots = mapOf("N" to SlotFiller.Dynamic("quietMinutesLabel"))),
-        r("ambient_confess_4", MascotIntent.CONFESS, "{self} enjoys this very much",
-            weight = 0.5f,
-            slots = mapOf("self" to SlotFiller.OneOf(Lexicon.penguinSelf))),
+            slots = mapOf("N" to SlotFiller.Dynamic("currentMinutesLabel")),
+            contextFilter = ContextFilter(requiresActivePlayback = true)),
+        r("ambient_confess_2", MascotIntent.CONFESS, "your listening session is going strong",
+            weight = 0.5f, contextFilter = ContextFilter(requiresActivePlayback = true)),
 
-        // QUESTION
+        // IDLE / QUIET lines — ONLY fire when NOT playing (the fix)
+        r("ambient_idle_1", MascotIntent.OBSERVE, "you've been quiet for {N}, everything ok",
+            weight = 0.6f,
+            slots = mapOf("N" to SlotFiller.Dynamic("quietMinutesLabel")),
+            contextFilter = ContextFilter(requiresActivePlayback = false)),
+        r("ambient_idle_2", MascotIntent.OBSERVE, "the app is open but the music isn't, just saying",
+            weight = 0.4f,
+            contextFilter = ContextFilter(requiresActivePlayback = false)),
+        r("ambient_idle_3", MascotIntent.QUESTION, "are you picking something or just vibing in silence",
+            weight = 0.5f,
+            contextFilter = ContextFilter(requiresActivePlayback = false)),
+        r("ambient_idle_4", MascotIntent.ROAST, "bestie press play, the queue misses you",
+            weight = 0.5f, moodAffinity = listOf(SkipperMood.WITTY),
+            contextFilter = ContextFilter(requiresActivePlayback = false)),
+
+        // QUESTION — generic
         r("ambient_question_1", MascotIntent.QUESTION, "what's the vibe today",
             weight = 0.5f, moodAffinity = listOf(SkipperMood.NOSY, SkipperMood.WHATEVER)),
-        r("ambient_question_2", MascotIntent.QUESTION, "where are we going with this",
-            weight = 0.4f, moodAffinity = listOf(SkipperMood.NOSY)),
 
         // ROAST (mild ambient)
-        r("ambient_roast_1", MascotIntent.ROAST, "i'm watching",
+        r("ambient_roast_1", MascotIntent.ROAST, "i'm clocking your listening habits",
             weight = 0.3f, moodAffinity = listOf(SkipperMood.NOSY)),
-        r("ambient_roast_2", MascotIntent.ROAST, "i'm clocking this",
-            weight = 0.3f, moodAffinity = listOf(SkipperMood.NOSY, SkipperMood.WITTY)),
     )
 
     // ════════════════════════════════════════════════════════════════
     // Filtering — used by the LineGenerator before weighting/picking
     // ════════════════════════════════════════════════════════════════
 
-    /**
-     * Return only the rules whose [GrammarRule.contextFilter] is
-     * satisfied by the given [SlotContext].
-     */
     fun rulesForContext(ctx: SlotContext): List<GrammarRule> {
         return allRules.filter { rule ->
             val f = rule.contextFilter ?: return@filter true
@@ -438,31 +409,31 @@ object GrammarGraph {
                 }
                 if (match == null) return@filter false
             }
-            // 2. mood whitelist
-            if (f.requireMoodIn.isNotEmpty()) {
-                // We don't have a mood here in SlotContext; treat
-                // this as a no-op (the LineGenerator uses its own
-                // mood state for this check). The filter is a hint
-                // that gets applied later.
-            }
-            // 3. skip-rate
+            // 2. skip-rate
             if (f.requiresHighSkipRate && ctx.recentSkipRate < 0.6f) {
                 return@filter false
             }
-            // 4. party mode
+            // 3. party mode
             if (f.requiresPartyMode && !ctx.isPartyMode) {
                 return@filter false
             }
-            // 5. looping
+            // 4. looping
             if (f.requiresLooping && ctx.currentLoopCount < 3) {
                 return@filter false
             }
-            // 6. minutes on current song
+            // 5. minutes on current song
             if (ctx.currentMinutesListened < f.minMinutesOnCurrentSong) {
                 return@filter false
             }
-            // 7. hour range
+            // 6. hour range
             if (f.hourRange != null && ctx.hourOfDay !in f.hourRange) {
+                return@filter false
+            }
+            // 7. active playback requirement
+            if (f.requiresActivePlayback == true && !ctx.isActivelyPlaying) {
+                return@filter false
+            }
+            if (f.requiresActivePlayback == false && ctx.isActivelyPlaying) {
                 return@filter false
             }
             true
