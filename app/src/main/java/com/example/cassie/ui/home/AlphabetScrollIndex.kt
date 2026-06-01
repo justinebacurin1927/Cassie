@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -94,15 +95,25 @@ fun AlphabetScrollIndex(
         }
     }
 
+    // Tracks the last letter we jumped to. Used to throttle
+    // scrollToItem calls — without it, every pointer event fires a
+    // scroll even when the letter hasn't changed, which thrashes
+    // the LazyColumn and causes the lag the user reported.
+    var lastJumpedLetter by remember { mutableStateOf<Char?>(null) }
+
     fun jumpTo(letter: Char, touchY: Float) {
         val songIdx = letterToSongIndex[letter] ?: return
         active = letter
         indicatorY = touchY
-        // Instant scroll: snappy on drag. animateScrollToItem would
-        // lag because each new finger position fights the in-flight
-        // animation.
-        scope.launch {
-            listState.scrollToItem(songsStartIndex + songIdx)
+        // Throttle: only scroll when the letter actually changes.
+        if (lastJumpedLetter != letter) {
+            lastJumpedLetter = letter
+            // Instant scroll: snappy on drag. animateScrollToItem
+            // would lag because each new finger position fights the
+            // in-flight animation.
+            scope.launch {
+                listState.scrollToItem(songsStartIndex + songIdx)
+            }
         }
     }
 
@@ -133,8 +144,10 @@ fun AlphabetScrollIndex(
                                 if (ch in present) jumpTo(ch, change.position.y)
                             } else {
                                 // Pointer lifted — clear the indicator
-                                // so the UI returns to its steady state.
+                                // and reset the throttle so the next
+                                // press can jump to any letter.
                                 if (active != null) active = null
+                                lastJumpedLetter = null
                             }
                         }
                     }
@@ -173,21 +186,34 @@ fun AlphabetScrollIndex(
                 label = "indicatorPop",
             )
             val bubbleSize = 56.dp
-            // Column is padded 6.dp from the right edge, plus its own
-            // background padding 3.dp each side + ~14.dp text width.
-            // Anchor the bubble 32.dp to the left of the column's
-            // right edge so the tail can fit pointing right.
-            val columnRightOffset = 6.dp + 3.dp + 14.dp
-            val bubbleOffsetX = -(columnRightOffset + 32.dp)
+            val bubbleGap   = 8.dp  // space between bubble and column
+            val columnWidth = with(LocalDensity.current) {
+                // Column width: padding(horizontal=3.dp) + 1 letter
+                // at most 14.dp wide, so 3+14+3 = ~20.dp visible.
+                20.dp.toPx()
+            }
+            val bubbleSizePx = with(LocalDensity.current) { bubbleSize.toPx() }
+            val bubbleGapPx  = with(LocalDensity.current) { bubbleGap.toPx() }
+            // Anchor the bubble so its right edge sits bubbleGap px
+            // to the left of the column's left edge, so the tail
+            // (drawn at the bubble's right edge) points AT the column.
+            val bubbleOffsetX = -(columnWidth + bubbleGapPx)
+            // Clamp the bubble's Y so it stays fully on-screen when
+            // the user touches the very top or bottom of the column.
+            val clampedY = indicatorY.coerceIn(
+                minimumValue = bubbleSizePx / 2f,
+                maximumValue = constraints.maxHeight - bubbleSizePx / 2f,
+            )
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .offset {
-                        // Anchor the bubble's vertical center on indicatorY
                         IntOffset(
-                            x = bubbleOffsetX.roundToPx(),
-                            y = (indicatorY - bubbleSize.toPx() / 2f).roundToInt(),
+                            x = bubbleOffsetX.roundToInt(),
+                            // Center the bubble vertically on the
+                            // (clamped) finger position.
+                            y = (clampedY - bubbleSizePx / 2f).roundToInt(),
                         )
                     }
                     .size(bubbleSize)

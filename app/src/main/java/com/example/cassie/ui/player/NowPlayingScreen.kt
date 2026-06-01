@@ -1,5 +1,6 @@
 package com.example.cassie.ui.player
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.*
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -102,6 +103,47 @@ fun NowPlayingScreen(
     val swipeAlpha   = remember { Animatable(1f) }
     val swipeScope   = rememberCoroutineScope()
     val dismissThresholdPx = with(LocalDensity.current) { 120.dp.toPx() }
+
+    // ── unified "close with animation" ───────────────────────────────
+    // All three close paths (swipe-down release, X button, hardware
+    // back) go through this lambda so the dismissal feels consistent
+    // and slow. Animate the screen sliding off + fading out, then
+    // hand off to onClose() which switches the actual screen.
+    val closeWithAnimation: () -> Unit = {
+        swipeScope.launch {
+            launch {
+                swipeOffsetY.animateTo(
+                    targetValue   = 1500f,
+                    animationSpec = tween(
+                        durationMillis = 380,
+                        easing         = FastOutSlowInEasing,
+                    ),
+                )
+            }
+            launch {
+                swipeAlpha.animateTo(
+                    targetValue   = 0f,
+                    animationSpec = tween(
+                        durationMillis = 380,
+                        easing         = FastOutSlowInEasing,
+                    ),
+                )
+            }
+            // After the visual close completes, hand off to the
+            // caller's onClose (which switches the screen).
+            launch {
+                kotlinx.coroutines.delay(380)
+                onClose()
+            }
+        }
+    }
+
+    // ── back button intercept ───────────────────────────────────────
+    // The outer BackHandler in MainActivity pops the back stack.
+    // When NowPlaying is on screen, the INNER handler (this one) is
+    // picked first by Compose — it routes the back press through the
+    // unified animated close instead of an instant screen switch.
+    BackHandler(enabled = true) { closeWithAnimation() }
 
     LaunchedEffect(Unit) {
         launch {
@@ -342,30 +384,13 @@ fun NowPlayingScreen(
                     onDragStart = { totalDrag = 0f },
                     onDragEnd = {
                         val past = swipeOffsetY.value > dismissThresholdPx
-                        swipeScope.launch {
-                            if (past) {
-                                // Slide off + fade, then close.
-                                launch {
-                                    swipeOffsetY.animateTo(
-                                        targetValue = 1500f,
-                                        animationSpec = tween(
-                                            durationMillis = 220,
-                                            easing         = FastOutLinearInEasing,
-                                        ),
-                                    )
-                                    onClose()
-                                }
-                                launch {
-                                    swipeAlpha.animateTo(
-                                        targetValue = 0f,
-                                        animationSpec = tween(
-                                            durationMillis = 220,
-                                            easing         = FastOutLinearInEasing,
-                                        ),
-                                    )
-                                }
-                            } else {
-                                // Spring back to rest.
+                        if (past) {
+                            // Use the unified animated close so the
+                            // dismissal feels the same as X / back.
+                            closeWithAnimation()
+                        } else {
+                            // Spring back to rest.
+                            swipeScope.launch {
                                 launch { swipeOffsetY.animateTo(0f, spring()) }
                                 launch { swipeAlpha.animateTo(1f, spring()) }
                             }
@@ -446,7 +471,7 @@ fun NowPlayingScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment     = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onClose) {
+                IconButton(onClick = closeWithAnimation) {
                     Icon(Icons.Default.KeyboardArrowDown, "Minimize", tint = TextPrimary, modifier = Modifier.size(28.dp))
                 }
                 Text("NOW PLAYING", color = TextDim, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
@@ -547,6 +572,8 @@ fun NowPlayingScreen(
             // ── seekbar (own composable so the 4Hz position tick only
             //    recomposes the seekbar; the rest of NowPlayingScreen
             //    is skipped by Compose's structural equality) ──
+            // SeekBar already renders the elapsed/remaining time labels
+            // underneath the track, so no duplicate Row is needed here.
             SeekBar(
                 position = position,
                 duration = duration,
@@ -554,13 +581,6 @@ fun NowPlayingScreen(
                 accentColor = accentColor,
                 onSeek = { playbackManager.seekTo(it) },
             )
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 2.dp, end = 2.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(formatTime(position), color = TextSecondary.copy(alpha = 0.6f), style = CassieTypography.caption)
-                Text(formatTime(duration), color = TextSecondary.copy(alpha = 0.6f), style = CassieTypography.caption)
-            }
 
             Spacer(Modifier.height(28.dp))
 
@@ -853,8 +873,16 @@ private fun SeekBar(
             modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 2.dp, end = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
+            // Left: elapsed time (e.g. "1:23")
             Text(formatTime(position), color = TextSecondary.copy(alpha = 0.6f), style = CassieTypography.caption)
-            Text(formatTime(duration), color = TextSecondary.copy(alpha = 0.6f), style = CassieTypography.caption)
+            // Right: remaining time (e.g. "-2:34") — the standard music
+            // player pattern. User sees at a glance how much is left.
+            val remaining = (duration - position).coerceAtLeast(0L)
+            Text(
+                text = "-${formatTime(remaining)}",
+                color = TextSecondary.copy(alpha = 0.6f),
+                style = CassieTypography.caption,
+            )
         }
     }
 }

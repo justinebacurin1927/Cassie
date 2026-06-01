@@ -127,6 +127,12 @@ private fun CassieApp() {
     // (bottom nav) reset the stack to a single screen.
     var backStack by remember { mutableStateOf(listOf<Screen>(Screen.Home)) }
     var homeViewModel by remember { mutableStateOf<com.example.cassie.ui.home.HomeViewModel?>(null) }
+    // NowPlaying is a MODAL: it doesn't go on the back stack. But when
+    // it closes, we want to return to the screen the user was on
+    // (Top 50, Artists, Albums, etc.) — not always Home. So we
+    // remember the previous screen at the moment NowPlaying opens
+    // and restore it on close.
+    var previousScreenBeforeNowPlaying by remember { mutableStateOf<Screen?>(null) }
 
     fun navigateTo(screen: Screen) {
         backStack = backStack + screen
@@ -141,6 +147,23 @@ private fun CassieApp() {
     fun resetTo(screen: Screen) {
         backStack = listOf(screen)
         currentScreen = screen
+    }
+    /**
+     * Open NowPlaying as a modal. Saves the current screen so that
+     * closing NowPlaying (via X, back, or swipe-down) returns the
+     * user to where they were — not always Home.
+     */
+    fun openNowPlaying() {
+        previousScreenBeforeNowPlaying = currentScreen
+        currentScreen = Screen.NowPlaying
+    }
+    /**
+     * Close NowPlaying and restore the screen the user was on when
+     * they opened it. Falls back to Home if unknown.
+     */
+    fun closeNowPlaying() {
+        currentScreen = previousScreenBeforeNowPlaying ?: Screen.Home
+        previousScreenBeforeNowPlaying = null
     }
 
     // ── permission state ──────────────────────────────────────────
@@ -200,7 +223,7 @@ private fun CassieApp() {
     BackHandler(enabled = true) {
         when {
             backStack.size > 1 -> navigateBack()
-            currentScreen is Screen.NowPlaying -> currentScreen = Screen.Home
+            currentScreen is Screen.NowPlaying -> closeNowPlaying()
             else -> activity?.finish()
         }
     }
@@ -248,7 +271,7 @@ private fun CassieApp() {
                             playlistStore = playlistStore,
                             favoritesStore = favoritesStore,
                             listState = homeListState,
-                            onNavigateToPlayer = { currentScreen = Screen.NowPlaying },
+                            onNavigateToPlayer = { openNowPlaying() },
                             onNavigateToAlbums = { currentScreen = Screen.Albums },
                             onNavigateToArtists = { currentScreen = Screen.Artists },
                             onNavigateToPlaylists = { navigateTo(Screen.Playlists) },
@@ -260,7 +283,7 @@ private fun CassieApp() {
                         NowPlayingScreen(
                             playbackManager = playbackManager,
                             equalizerManager = equalizerManager,
-                            onClose = { currentScreen = Screen.Home },
+                            onClose = { closeNowPlaying() },
                         )
                     }
                     Screen.Artists -> {
@@ -269,7 +292,7 @@ private fun CassieApp() {
                             playbackManager = playbackManager,
                             playlistStore = playlistStore,
                             favoritesStore = favoritesStore,
-                            onSongClick = { currentScreen = Screen.NowPlaying },
+                            onSongClick = { openNowPlaying() },
                             onBack = { navigateBack() },
                         )
                     }
@@ -279,7 +302,7 @@ private fun CassieApp() {
                             playbackManager = playbackManager,
                             playlistStore = playlistStore,
                             favoritesStore = favoritesStore,
-                            onSongClick = { currentScreen = Screen.NowPlaying },
+                            onSongClick = { openNowPlaying() },
                             onAlbumClick = { albumName -> navigateTo(Screen.AlbumDetail(albumName)) },
                             onBack = { navigateBack() },
                         )
@@ -291,7 +314,7 @@ private fun CassieApp() {
                             playbackManager = playbackManager,
                             playlistStore = playlistStore,
                             favoritesStore = favoritesStore,
-                            onSongClick = { currentScreen = Screen.NowPlaying },
+                            onSongClick = { openNowPlaying() },
                             onBack = { navigateBack() },
                         )
                     }
@@ -301,7 +324,7 @@ private fun CassieApp() {
                             playlistStore = playlistStore,
                             favoritesStore = favoritesStore,
                             playbackManager = playbackManager,
-                            onSongClick = { currentScreen = Screen.NowPlaying },
+                            onSongClick = { openNowPlaying() },
                             onPlaylistClick = { playlist -> navigateTo(Screen.PlaylistDetail(playlist)) },
                             onBack = { navigateBack() },
                         )
@@ -314,7 +337,7 @@ private fun CassieApp() {
                             playbackManager = playbackManager,
                             playlistStore = playlistStore,
                             favoritesStore = favoritesStore,
-                            onSongClick = { currentScreen = Screen.NowPlaying },
+                            onSongClick = { openNowPlaying() },
                             onBack = { navigateBack() },
                         )
                     }
@@ -323,7 +346,7 @@ private fun CassieApp() {
                             songs = songs,
                             playbackManager = playbackManager,
                             favoritesStore = favoritesStore,
-                            onSongClick = { currentScreen = Screen.NowPlaying },
+                            onSongClick = { openNowPlaying() },
                             onBack = { navigateBack() },
                         )
                     }
@@ -343,7 +366,7 @@ private fun CassieApp() {
             ) {
                 MiniPlayer(
                     playbackManager = playbackManager,
-                    onClick = { currentScreen = Screen.NowPlaying },
+                    onClick = { openNowPlaying() },
                 )
             }
 
