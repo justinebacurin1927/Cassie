@@ -54,6 +54,10 @@ fun PlaylistScreen(
 ) {
     val playlists by (playlistStore?.playlists?.collectAsState() ?: remember { mutableStateOf(emptyList()) })
     var showCreateDialog by remember { mutableStateOf(false) }
+    // Confirm-before-delete: a single tap used to wipe the playlist
+    // with no undo. Now the IconButton opens a CassieDialog; matches
+    // the behavior of PlaylistDetailScreen.
+    var pendingDelete by remember { mutableStateOf<Playlist?>(null) }
 
     Box(
         modifier = Modifier.fillMaxSize().background(PureBlack)
@@ -89,7 +93,7 @@ fun PlaylistScreen(
                     playlist = playlist,
                     songs = songs,
                     onClick = { onPlaylistClick(playlist) },
-                    onDelete = { playlistStore?.delete(playlist.id) },
+                    onDelete = { pendingDelete = playlist },
                 )
             }
         }
@@ -99,6 +103,33 @@ fun PlaylistScreen(
         CreatePlaylistDialog(
             onDismiss = { showCreateDialog = false },
             onCreate = { name -> playlistStore?.create(name); showCreateDialog = false }
+        )
+    }
+
+    pendingDelete?.let { pl ->
+        CassieDialog(
+            onDismissRequest = { pendingDelete = null },
+            dialogTitle = { Text("Delete playlist?", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            dialogText = {
+                Text(
+                    "Delete \"${pl.name}\"? This cannot be undone.",
+                    color = TextSecondary,
+                    fontSize = 14.sp,
+                )
+            },
+            dialogConfirmButton = {
+                TextButton(onClick = {
+                    playlistStore?.delete(pl.id)
+                    pendingDelete = null
+                }) {
+                    Text("Delete", color = Color(0xFFCF6679), fontWeight = FontWeight.Bold)
+                }
+            },
+            dialogDismissButton = {
+                TextButton(onClick = { pendingDelete = null }) {
+                    Text("Cancel", color = TextDim)
+                }
+            },
         )
     }
 }

@@ -147,14 +147,20 @@ fun HomeScreen(
         listeningCounter?.getRecentPlays(state.songs, limit = 5) ?: emptyList()
     }
 
+    // ── songById lookup map: O(1) instead of O(n) for every find()
+    //    below. With a 5k-song library the old code did ~10k linear
+    //    scans per recomposition of vibeStats + topSongs + each
+    //    playlist preview. One map build replaces all of that. ──
+    val songById = remember(state.songs) { state.songs.associateBy { it.id } }
+
     // ── "Your Top 50" — ranked by lifetime minutes listened. ──
     // We deliberately drop the minute count in the UI: the list is
     // just a ranking, the metric is implicit (and only visible to
     // Skipper internally for pattern detection).
     val topByMinutesRaw by SkipperEngine.topSongsByMinutes.collectAsState()
-    val topSongs = remember(topByMinutesRaw, state.songs) {
+    val topSongs = remember(topByMinutesRaw, songById) {
         topByMinutesRaw
-            .mapNotNull { (id, _) -> state.songs.find { it.id == id } }
+            .mapNotNull { (id, _) -> songById[id] }
             .take(10)
     }
 
@@ -164,21 +170,21 @@ fun HomeScreen(
     }
 
     // ── "Your Vibe" listening stats ────────────────────────────────────
-    val vibeStats = remember(listeningCounter?.counts?.value, state.songs) {
+    val vibeStats = remember(listeningCounter?.counts?.value, songById) {
         val counts = listeningCounter?.counts?.value ?: emptyMap()
         val totalPlays = counts.values.sumOf { it.count }
         val uniqueSongs = counts.size
         // top artist by total plays
         val artistPlays = mutableMapOf<String, Int>()
         for ((songId, pc) in counts) {
-            val song = state.songs.find { it.id == songId }
+            val song = songById[songId]
             if (song != null) {
                 artistPlays[song.artist] = (artistPlays[song.artist] ?: 0) + pc.count
             }
         }
         val topArtist = artistPlays.maxByOrNull { it.value }?.key ?: "—"
         val totalMillis = counts.entries.sumOf { (songId, pc) ->
-            state.songs.find { it.id == songId }?.let { it.duration * pc.count } ?: 0L
+            songById[songId]?.let { it.duration * pc.count } ?: 0L
         }
         val totalMinutes = (totalMillis / 60000).toInt()
         VibeStats(totalPlays = totalPlays, uniqueSongs = uniqueSongs, topArtist = topArtist, totalMinutes = totalMinutes)
@@ -252,6 +258,7 @@ fun HomeScreen(
                 sortedSongs = sortedSongs,
                 letterToSongIndex = letterToSongIndex,
                 songsStartIndex = songsStartIndex,
+                songById = songById,
             )
         }
 
@@ -661,6 +668,7 @@ private fun ContentDashboard(
     sortedSongs: List<Song> = songs,
     letterToSongIndex: Map<Char, Int> = emptyMap(),
     songsStartIndex: Int = 0,
+    songById: Map<Long, Song> = emptyMap(),
     onNavigateToArtists: () -> Unit,
     onNavigateToTop50: () -> Unit,
     listState: LazyListState,
@@ -680,9 +688,9 @@ private fun ContentDashboard(
                     Text("${songs.size} songs in library", color = TextSecondary, fontSize = 13.sp)
                 }
                 Row {
-                    IconButton(onClick = onNavigateToArtists) { Icon(Icons.Default.Person, null, tint = GreyIcon, modifier = Modifier.size(22.dp)) }
-                    IconButton(onClick = onNavigateToPlaylists) { Icon(Icons.AutoMirrored.Filled.QueueMusic, null, tint = GreyIcon, modifier = Modifier.size(22.dp)) }
-                    IconButton(onClick = onNavigateToTop50) { Icon(Icons.AutoMirrored.Filled.TrendingUp, null, tint = GreyIcon, modifier = Modifier.size(22.dp)) }
+                    IconButton(onClick = onNavigateToArtists) { Icon(Icons.Default.Person, "Artists", tint = GreyIcon, modifier = Modifier.size(22.dp)) }
+                    IconButton(onClick = onNavigateToPlaylists) { Icon(Icons.AutoMirrored.Filled.QueueMusic, "Playlists", tint = GreyIcon, modifier = Modifier.size(22.dp)) }
+                    IconButton(onClick = onNavigateToTop50) { Icon(Icons.AutoMirrored.Filled.TrendingUp, "Top 50", tint = GreyIcon, modifier = Modifier.size(22.dp)) }
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -787,7 +795,7 @@ private fun ContentDashboard(
                                 modifier = Modifier.horizontalScroll(rememberScrollState())
                             ) {
                                 playlistPreviews.forEach { playlist ->
-                                    val coverSong = songs.firstOrNull { it.id in playlist.songIds }
+                                    val coverSong = playlist.songIds.firstNotNullOfOrNull { songById[it] }
                                     PlaylistPreviewCard(
                                         playlist = playlist,
                                         coverSong = coverSong,

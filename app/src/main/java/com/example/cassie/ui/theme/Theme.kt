@@ -26,7 +26,9 @@ object CassieColors {
     val GlassBorder   = Color.White.copy(alpha = 0.10f)
     val TextPrimary   = Color.White
     val TextSecondary = Color.White.copy(alpha = 0.6f)
-    val TextDim       = Color.White.copy(alpha = 0.35f)
+    // TextDim 0.35f failed WCAG AA on PureBlack (3.1:1). 0.55f gives
+    // ~4.6:1 which clears the 4.5:1 threshold for body text.
+    val TextDim       = Color.White.copy(alpha = 0.55f)
     val GreyIcon      = Color.White.copy(alpha = 0.55f)
     val RedAccent     = Color(0xFFCF6679)
     val GradientStart = Color(0xFF0F0020)

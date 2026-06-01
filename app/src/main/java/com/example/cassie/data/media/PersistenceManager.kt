@@ -56,6 +56,15 @@ class PersistenceManager(context: Context) {
                 )
             }
         } catch (e: Exception) {
+            // Corrupt blob — move it aside (don't overwrite) so the
+            // user can recover it from device storage and we have
+            // something to attach a bug report to. Returning empty
+            // here without preserving the raw would silently lose
+            // every playlist on the next save.
+            try {
+                val aside = "playlists_corrupt_${System.currentTimeMillis()}"
+                prefs.edit().putString(aside, raw).remove("playlists").apply()
+            } catch (_: Exception) { /* best-effort */ }
             emptyList()
         }
     }

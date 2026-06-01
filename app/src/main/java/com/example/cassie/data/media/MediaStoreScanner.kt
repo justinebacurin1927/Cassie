@@ -47,38 +47,57 @@ class MediaStoreScanner(private val context: Context) {
         val where = mimeTypes.joinToString(" OR ") { "${MediaStore.Audio.Media.MIME_TYPE} = ?" }
         val sel = "$where AND ${MediaStore.Audio.Media.DURATION} > 30000"
 
-        context.contentResolver.query(
-            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-            projection, sel, mimeTypes,
-            "${MediaStore.Audio.Media.TITLE} ASC"
-        )?.use { c ->
-            val id = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-            val title = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-            val artist = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-            val album = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
-            val albumId = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
-            val dur = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-            val dateCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
-            val mime = c.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
-            val genreIdx = c.getColumnIndex(MediaStore.Audio.AudioColumns.GENRE)
-            val dataIdx = c.getColumnIndex(MediaStore.Audio.Media.DATA)
+        // Some OEM devices (Vivo/Xiaomi on Android 10-12) throw
+        // SecurityException even after the runtime permission is
+        // granted. Wrap the whole query so the coroutine doesn't
+        // crash and leave the caller in an infinite-loading state.
+        try {
+            context.contentResolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                projection, sel, mimeTypes,
+                "${MediaStore.Audio.Media.TITLE} ASC"
+            )?.use { c ->
+                val id = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                val title = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                val artist = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+                val album = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+                val albumId = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+                val dur = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+                val dateCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
+                val mime = c.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
+                val genreIdx = c.getColumnIndex(MediaStore.Audio.AudioColumns.GENRE)
+                val dataIdx = c.getColumnIndex(MediaStore.Audio.Media.DATA)
 
-            while (c.moveToNext()) {
-                val aid = c.getLong(albumId)
-                songs.add(Song(
-                    id = c.getLong(id),
-                    title = c.getString(title) ?: "Unknown",
-                    artist = c.getString(artist) ?: "Unknown Artist",
-                    album = c.getString(album) ?: "Unknown Album",
-                    albumId = aid,
-                    duration = c.getLong(dur),
-                    dateAdded = c.getLong(dateCol),
-                    mimeType = c.getString(mime) ?: "audio/mpeg",
-                    albumArtUri = Uri.parse("content://media/external/audio/albumart/$aid").toString(),
-                    genre = if (genreIdx >= 0) c.getString(genreIdx) ?: "" else "",
-                    filePath = if (dataIdx >= 0) c.getString(dataIdx) else null,
-                ))
+                while (c.moveToNext()) {
+                    // Per-row try: a single bad row on a weird OEM
+                    // (e.g. MediaStore.Audio.AudioColumns.GENRE throwing
+                    // IllegalArgumentException on some pre-Q devices)
+                    // shouldn't kill the whole scan.
+                    try {
+                        val aid = c.getLong(albumId)
+                        songs.add(Song(
+                            id = c.getLong(id),
+                            title = c.getString(title) ?: "Unknown",
+                            artist = c.getString(artist) ?: "Unknown Artist",
+                            album = c.getString(album) ?: "Unknown Album",
+                            albumId = aid,
+                            duration = c.getLong(dur),
+                            dateAdded = c.getLong(dateCol),
+                            mimeType = c.getString(mime) ?: "audio/mpeg",
+                            albumArtUri = Uri.parse("content://media/external/audio/albumart/$aid").toString(),
+                            genre = if (genreIdx >= 0) c.getString(genreIdx) ?: "" else "",
+                            filePath = if (dataIdx >= 0) c.getString(dataIdx) else null,
+                        ))
+                    } catch (_: Exception) {
+                        // skip this row, keep scanning
+                    }
+                }
             }
+        } catch (_: SecurityException) {
+            // permission got revoked between grant and query — return
+            // what we have so the caller can show an empty/permission UI
+        } catch (_: Exception) {
+            // other query failure — return empty so the UI can recover
         }
         songs
     }

@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalDensity
 import androidx.media3.common.Player
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
@@ -73,6 +74,9 @@ private val PurpleAccent  = CassieColors.PurpleAccent
 private val TextPrimary   = CassieColors.TextPrimary
 private val TextSecondary = CassieColors.TextSecondary
 private val TextDim       = CassieColors.TextDim
+
+// ── File-scope constants (avoid per-frame allocation) ──────────────
+private val LyricsLineWidths = listOf(0.85f, 0.6f, 0.75f, 0.5f, 0.8f, 0.55f)
 
 @Composable
 fun NowPlayingScreen(
@@ -148,17 +152,26 @@ fun NowPlayingScreen(
     val scope = rememberCoroutineScope()
 
     /** Fetch lyrics with timeout and proper error handling. */
-    val fetchLyrics: suspend () -> Unit = {
+    val fetchLyrics: suspend () -> Unit = fetchLyrics@{
         if (!loadingLyrics) {
+            // Re-read the current song inside the lambda — the captured
+            // `song` at composition time may be stale by the time the
+            // user taps Retry, and `song!!` would NPE.
+            val s = state.currentSong
+            if (s == null) {
+                lyricsError = true
+                lyricsAttempted = true
+                return@fetchLyrics
+            }
             loadingLyrics = true
             lyricsError = false
             try {
                 val result = withTimeout(10_000L) {
                     val prefs = PersistenceManager(context)
                     LyricsRepository.fetchLyrics(
-                        artist = song!!.artist,
-                        title = song!!.title,
-                        songFilePath = song!!.filePath,
+                        artist = s.artist,
+                        title = s.title,
+                        songFilePath = s.filePath,
                         prefs = prefs,
                     )
                 }
@@ -463,76 +476,21 @@ fun NowPlayingScreen(
 
             Spacer(Modifier.height(28.dp))
 
-            // ── seekbar (Canvas with gradient fill + animated thumb) ──
-            Column(Modifier.fillMaxWidth()) {
-                val progress = (position.toFloat() / duration).coerceIn(0f, 1f)
-                val isDragging = remember { mutableStateOf(false) }
-                val animProgress = animateFloatAsState(
-                    targetValue = progress,
-                    animationSpec = tween(150, easing = LinearEasing),
-                    label = "seek"
-                ).value
-
-                Canvas(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(40.dp)
-                        .pointerInput(Unit) {
-                            detectTapGestures { offset ->
-                                playbackManager.seekTo(((offset.x / size.width) * duration).toLong())
-                            }
-                        }
-                        .pointerInput(Unit) {
-                            detectHorizontalDragGestures { change, _ ->
-                                change.consume()
-                                isDragging.value = true
-                                playbackManager.seekTo(((change.position.x / size.width) * duration).toLong())
-                            }
-                        }
-                ) {
-                    val trackTop = size.height / 2 - 2.dp.toPx()
-                    val trackH = 4.dp.toPx()
-                    val r = trackH / 2
-                    val fillEnd = animProgress * size.width
-
-                    // Track background
-                    drawRoundRect(
-                        color = TextDim.copy(alpha = 0.15f),
-                        topLeft = androidx.compose.ui.geometry.Offset(0f, trackTop),
-                        size = androidx.compose.ui.geometry.Size(size.width, trackH),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r)
-                    )
-                    // Gradient fill
-                    drawRoundRect(
-                        brush = Brush.horizontalGradient(
-                            colors = listOf(accentColor, accentColor.copy(alpha = 0.6f))
-                        ),
-                        topLeft = androidx.compose.ui.geometry.Offset(0f, trackTop),
-                        size = androidx.compose.ui.geometry.Size(fillEnd, trackH),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r)
-                    )
-                    // Thumb
-                    if (isDragging.value) {
-                        val thumbR = 10.dp.toPx()
-                        drawCircle(
-                            color = accentColor,
-                            radius = thumbR,
-                            center = androidx.compose.ui.geometry.Offset(fillEnd, size.height / 2)
-                        )
-                        drawCircle(
-                            color = Color.White.copy(alpha = 0.5f),
-                            radius = thumbR * 0.35f,
-                            center = androidx.compose.ui.geometry.Offset(fillEnd, size.height / 2)
-                        )
-                    }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 2.dp, end = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(formatTime(position), color = TextSecondary.copy(alpha = 0.6f), style = CassieTypography.caption)
-                    Text(formatTime(duration), color = TextSecondary.copy(alpha = 0.6f), style = CassieTypography.caption)
-                }
+            // ── seekbar (own composable so the 4Hz position tick only
+            //    recomposes the seekbar; the rest of NowPlayingScreen
+            //    is skipped by Compose's structural equality) ──
+            SeekBar(
+                position = position,
+                duration = duration,
+                accentColor = accentColor,
+                onSeek = { playbackManager.seekTo(it) },
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 2.dp, end = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(formatTime(position), color = TextSecondary.copy(alpha = 0.6f), style = CassieTypography.caption)
+                Text(formatTime(duration), color = TextSecondary.copy(alpha = 0.6f), style = CassieTypography.caption)
             }
 
             Spacer(Modifier.height(28.dp))
@@ -663,9 +621,19 @@ fun NowPlayingScreen(
                             accentColor = accentColor,
                             modifier = Modifier.fillMaxSize(),
                         )
-                        // ── plain lyrics available ──
-                        lyricsText != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("No synced lyrics available", color = TextDim, fontSize = 13.sp)
+                        // ── plain lyrics available (no timed version) ──
+                        !lyricsText.isNullOrBlank() -> Box(
+                            Modifier.fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 16.dp),
+                            contentAlignment = Alignment.TopStart,
+                        ) {
+                            Text(
+                                text = lyricsText!!,
+                                color = TextPrimary,
+                                fontSize = 15.sp,
+                                lineHeight = 22.sp,
+                            )
                         }
                         // ── error / retry ──
                         lyricsError -> Column(
@@ -692,7 +660,97 @@ fun NowPlayingScreen(
     }
 }
 
-// ── Animated lyrics loading skeleton ────────────────────────────
+// ── Seekbar (extracted so the 4Hz position tick doesn't recompose
+//    the whole player) ───────────────────────────────────────────
+@Composable
+private fun SeekBar(
+    position: Long,
+    duration: Long,
+    accentColor: Color,
+    onSeek: (Long) -> Unit,
+) {
+    val safeDuration = duration.coerceAtLeast(1L)
+    val progress = (position.toFloat() / safeDuration).coerceIn(0f, 1f)
+    val isDragging = remember { mutableStateOf(false) }
+    val animProgress by animateFloatAsState(
+        targetValue = progress,
+        animationSpec = tween(150, easing = LinearEasing),
+        label = "seek",
+    )
+
+    // Hoist allocations out of the per-frame Canvas draw.
+    val fillBrush = remember(accentColor) {
+        Brush.horizontalGradient(listOf(accentColor, accentColor.copy(alpha = 0.6f)))
+    }
+    val density = LocalDensity.current
+    val trackCornerRadius = remember(density) {
+        with(density) {
+            androidx.compose.ui.geometry.CornerRadius(2.dp.toPx(), 2.dp.toPx())
+        }
+    }
+    val thumbRadius: Float = with(density) { 10.dp.toPx() }
+    val trackInnerR: Float = with(density) { 10.dp.toPx() * 0.35f }
+    val trackH: Float = with(density) { 4.dp.toPx() }
+    val trackTopOffset: Float = with(density) { 2.dp.toPx() }
+
+    Column(Modifier.fillMaxWidth()) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(40.dp)
+                .pointerInput(safeDuration) {
+                    detectTapGestures { offset ->
+                        onSeek(((offset.x / size.width) * safeDuration).toLong())
+                    }
+                }
+                .pointerInput(safeDuration) {
+                    detectHorizontalDragGestures { change, _ ->
+                        change.consume()
+                        isDragging.value = true
+                        onSeek(((change.position.x / size.width) * safeDuration).toLong())
+                    }
+                }
+        ) {
+            val trackTop = size.height / 2 - trackTopOffset
+            val fillEnd = animProgress * size.width
+
+            // Track background
+            drawRoundRect(
+                color = TextDim.copy(alpha = 0.15f),
+                topLeft = androidx.compose.ui.geometry.Offset(0f, trackTop),
+                size = androidx.compose.ui.geometry.Size(size.width, trackH),
+                cornerRadius = trackCornerRadius,
+            )
+            // Gradient fill
+            drawRoundRect(
+                brush = fillBrush,
+                topLeft = androidx.compose.ui.geometry.Offset(0f, trackTop),
+                size = androidx.compose.ui.geometry.Size(fillEnd, trackH),
+                cornerRadius = trackCornerRadius,
+            )
+            // Thumb
+            if (isDragging.value) {
+                drawCircle(
+                    color = accentColor,
+                    radius = thumbRadius,
+                    center = androidx.compose.ui.geometry.Offset(fillEnd, size.height / 2),
+                )
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.5f),
+                    radius = trackInnerR,
+                    center = androidx.compose.ui.geometry.Offset(fillEnd, size.height / 2),
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 2.dp, end = 2.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(formatTime(position), color = TextSecondary.copy(alpha = 0.6f), style = CassieTypography.caption)
+            Text(formatTime(duration), color = TextSecondary.copy(alpha = 0.6f), style = CassieTypography.caption)
+        }
+    }
+}
 @Composable
 private fun LyricsSkeleton(modifier: Modifier = Modifier) {
     val infinite = rememberInfiniteTransition(label = "skeletonPulse")
@@ -706,9 +764,9 @@ private fun LyricsSkeleton(modifier: Modifier = Modifier) {
         modifier = modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        // simulate 6 lyric lines at varying widths
-        val widths = listOf(0.85f, 0.6f, 0.75f, 0.5f, 0.8f, 0.55f)
-        widths.forEachIndexed { idx, w ->
+        // simulate 6 lyric lines at varying widths.
+        // Widths are file-scope (allocated once, not per frame).
+        LyricsLineWidths.forEachIndexed { idx, w ->
             val isDim = idx < 2 || idx > 3
             Box(
                 modifier = Modifier

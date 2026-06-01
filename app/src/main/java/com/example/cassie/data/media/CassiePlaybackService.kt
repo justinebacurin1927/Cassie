@@ -6,6 +6,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -63,7 +65,17 @@ class CassiePlaybackService : MediaSessionService() {
         startForeground(NOTIFICATION_ID, notification)
 
         // ── Now set up ExoPlayer + MediaSession ──
-        player = ExoPlayer.Builder(this).build()
+        // AudioAttributes + handleAudioFocus = true so a phone call
+        // (or other music app) pauses us cleanly instead of fighting
+        // for the audio output.
+        val audioAttrs = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.CONTENT_TYPE_MUSIC)
+            .build()
+        player = ExoPlayer.Builder(this)
+            .setAudioAttributes(audioAttrs, /* handleAudioFocus = */ true)
+            .setHandleAudioBecomingNoisy(true)
+            .build()
         companionPlayerRef = WeakReference(player)
 
         val intent = packageManager?.getLaunchIntentForPackage(packageName)
