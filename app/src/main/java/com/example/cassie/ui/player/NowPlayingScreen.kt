@@ -92,9 +92,11 @@ fun NowPlayingScreen(
         launch {
             offsetY.animateTo(
                 targetValue = 0f,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness    = Spring.StiffnessMedium,
+                // Was a medium-bouncy spring — felt 'hanging' on first
+                // open. Replaced with a slow smooth tween.
+                animationSpec = tween(
+                    durationMillis = 360,
+                    easing         = FastOutSlowInEasing,
                 )
             )
         }
@@ -466,7 +468,9 @@ fun NowPlayingScreen(
                 val progress = (position.toFloat() / duration).coerceIn(0f, 1f)
                 val isDragging = remember { mutableStateOf(false) }
                 val animProgress = animateFloatAsState(
-                    targetValue = progress, animationSpec = tween(200), label = "seek"
+                    targetValue = progress,
+                    animationSpec = tween(150, easing = LinearEasing),
+                    label = "seek"
                 ).value
 
                 Canvas(

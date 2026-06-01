@@ -1,7 +1,8 @@
 package com.example.cassie.ui.theme
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -28,8 +29,8 @@ fun CassieDialog(
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
     val scale by animateFloatAsState(
-        targetValue = if (visible) 1f else 0.92f,
-        animationSpec = spring(dampingRatio = 0.7f, stiffness = 300f),
+        targetValue = if (visible) 1f else 0.94f,
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
         label = "dialogScale"
     )
 

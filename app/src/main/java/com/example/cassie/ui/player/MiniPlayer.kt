@@ -225,10 +225,10 @@ fun MiniPlayer(
 
             Spacer(Modifier.width(2.dp))
 
-            // Play / Pause (spring-animated scale)
+            // Play / Pause (smooth tween scale — was bouncy spring)
             val miniPlayScale by animateFloatAsState(
-                targetValue = if (state.isPlaying) 1f else 0.88f,
-                animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMedium),
+                targetValue = if (state.isPlaying) 1f else 0.9f,
+                animationSpec = tween(180, easing = FastOutSlowInEasing),
                 label = "miniPlay"
             )
             Surface(

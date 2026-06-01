@@ -47,6 +47,7 @@ import com.example.cassie.data.media.Playlist
 import com.example.cassie.data.media.PlaylistStore
 import com.example.cassie.data.media.Song
 import com.example.cassie.party.SkipperEngine
+import com.example.cassie.ui.home.AlphabetScrollIndex
 import com.example.cassie.ui.party.SkipperCard
 import com.example.cassie.ui.theme.CassieColors
 import com.example.cassie.ui.theme.CassieDialog
@@ -120,6 +121,18 @@ fun HomeScreen(
         state.songs.sortedByOption(sortOption)
     }
 
+    // Map of letter -> index of the first song starting with that
+    // letter in the sorted library. Used by the alphabet sidebar.
+    val letterToSongIndex = remember(sortedSongs) {
+        val map = mutableMapOf<Char, Int>()
+        sortedSongs.forEachIndexed { i, song ->
+            val ch = song.title.firstOrNull { it.isLetter() }
+                ?.uppercaseChar() ?: '#'
+            if (ch !in map) map[ch] = i
+        }
+        map
+    }
+
     val filteredSongs = remember(sortedSongs, debouncedQuery) {
         val q = debouncedQuery.lowercase()
         if (debouncedQuery.isBlank()) sortedSongs
@@ -171,15 +184,19 @@ fun HomeScreen(
         VibeStats(totalPlays = totalPlays, uniqueSongs = uniqueSongs, topArtist = topArtist, totalMinutes = totalMinutes)
     }
 
-    // context for queue: search results if searching, full sorted library otherwise
-    val contextSongs = if (debouncedQuery.isBlank()) sortedSongs else filteredSongs
-
-    val handleSongClick: (Song) -> Unit = { song ->
-        playbackManager?.let { mgr ->
-            mgr.playInContext(song, contextSongs)
-            onNavigateToPlayer()
-        }
-        onSongClick(song)
+    // LazyColumn index where the first song starts. The alphabet
+    // sidebar uses this to land jumps exactly on a letter.
+    val songsStartIndex = remember(
+        topSongs.isNotEmpty(),
+        playlistPreviews.isNotEmpty(),
+        vibeStats.totalPlays > 0,
+    ) {
+        var idx = 1                              // Skipper card
+        if (topSongs.isNotEmpty()) idx++        // Your Top 50
+        if (playlistPreviews.isNotEmpty()) idx++ // Playlists
+        idx++                                   // separator
+        if (vibeStats.totalPlays > 0) idx++     // Vibe card
+        idx                                     // Your Library header
     }
 
     // ── live clock ──────────────────────────────────────────────────
@@ -190,6 +207,15 @@ fun HomeScreen(
             clockText = java.time.format.DateTimeFormatter.ofPattern("h:mm a").format(now)
             kotlinx.coroutines.delay(60_000L)
         }
+    }
+
+    val contextSongs = if (debouncedQuery.isBlank()) sortedSongs else filteredSongs
+    val handleSongClick: (Song) -> Unit = { song ->
+        playbackManager?.let { mgr ->
+            mgr.playInContext(song, contextSongs)
+            onNavigateToPlayer()
+        }
+        onSongClick(song)
     }
 
     Box(
@@ -222,6 +248,9 @@ fun HomeScreen(
                 onNavigateToArtists = onNavigateToArtists,
                 onNavigateToTop50 = onNavigateToTop50,
                 listState = listState,
+                sortedSongs = sortedSongs,
+                letterToSongIndex = letterToSongIndex,
+                songsStartIndex = songsStartIndex,
             )
         }
 
@@ -628,6 +657,9 @@ private fun ContentDashboard(
     favoritesStore: FavoritesStore?,
     onNavigateToPlaylists: () -> Unit,
     onPlaylistClick: (Playlist) -> Unit = {},
+    sortedSongs: List<Song> = songs,
+    letterToSongIndex: Map<Char, Int> = emptyMap(),
+    songsStartIndex: Int = 0,
     onNavigateToArtists: () -> Unit,
     onNavigateToTop50: () -> Unit,
     listState: LazyListState,
@@ -672,11 +704,12 @@ private fun ContentDashboard(
                 }
             }
         } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                contentPadding = PaddingValues(bottom = 4.dp)
-            ) {
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 4.dp)
+                ) {
                 // ── Skipper card (live, auto-updating) ──
                 item {
                     Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
@@ -776,6 +809,15 @@ private fun ContentDashboard(
                         SongCard(song = song, onClick = { onSongClick(song) }, playbackManager = playbackManager, playlistStore = playlistStore, favoritesStore = favoritesStore)
                     }
                 }
+                }
+                AlphabetScrollIndex(
+                    listState = listState,
+                    songsStartIndex = songsStartIndex,
+                    letterToSongIndex = letterToSongIndex,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 4.dp),
+                )
             }
         }
     }
