@@ -295,7 +295,6 @@ private fun CassieApp() {
                     Screen.Top50 -> {
                         Top50Screen(
                             songs = songs,
-                            listeningCounter = playbackManager.listeningCounter,
                             playbackManager = playbackManager,
                             favoritesStore = favoritesStore,
                             onSongClick = { currentScreen = Screen.NowPlaying },

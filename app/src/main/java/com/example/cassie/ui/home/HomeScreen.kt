@@ -46,6 +46,7 @@ import com.example.cassie.data.media.PlaybackManager
 import com.example.cassie.data.media.Playlist
 import com.example.cassie.data.media.PlaylistStore
 import com.example.cassie.data.media.Song
+import com.example.cassie.party.SkipperEngine
 import com.example.cassie.ui.party.SkipperCard
 import com.example.cassie.ui.theme.CassieColors
 import com.example.cassie.ui.theme.CassieDialog
@@ -133,8 +134,15 @@ fun HomeScreen(
         listeningCounter?.getRecentPlays(state.songs, limit = 5) ?: emptyList()
     }
 
-    val topSongs = remember(listeningCounter?.counts?.value, state.songs) {
-        listeningCounter?.getTop50(state.songs)?.take(3) ?: emptyList()
+    // ── "Your Top 50" — ranked by lifetime minutes listened. ──
+    // We deliberately drop the minute count in the UI: the list is
+    // just a ranking, the metric is implicit (and only visible to
+    // Skipper internally for pattern detection).
+    val topByMinutesRaw by SkipperEngine.topSongsByMinutes.collectAsState()
+    val topSongs = remember(topByMinutesRaw, state.songs) {
+        topByMinutesRaw
+            .mapNotNull { (id, _) -> state.songs.find { it.id == id } }
+            .take(10)
     }
 
     // ── Playlists preview for home (horizontal scroll) ──
@@ -371,7 +379,7 @@ private fun LoadingDashboard() {
                 }
             }
 
-            // ── Top Charts section ──
+            // ── Your Top 50 section ──
             item {
                 Column(Modifier.padding(start = 16.dp, end = 16.dp)) {
                     Row(
@@ -381,7 +389,7 @@ private fun LoadingDashboard() {
                     ) {
                         Box(
                             Modifier
-                                .width(110.dp)
+                                .width(120.dp)
                                 .height(18.dp)
                                 .clip(RoundedCornerShape(4.dp))
                                 .background(skelColor)
@@ -395,8 +403,8 @@ private fun LoadingDashboard() {
                         )
                     }
                     Spacer(Modifier.height(12.dp))
-                    // 3 top-chart rows (each row is ~60dp tall in the real layout)
-                    repeat(3) {
+                    // 10 top-50 rows (mirrors the real layout exactly)
+                    repeat(10) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -610,7 +618,7 @@ private fun ContentDashboard(
     sortOption: SortOption,
     onSortOptionChange: (SortOption) -> Unit,
     recentPlays: List<Song>,
-    topSongs: List<Pair<Song, Int>>,
+    topSongs: List<Song>,
     playlistPreviews: List<Playlist>,
     vibeStats: VibeStats,
     isEmpty: Boolean,
@@ -679,18 +687,18 @@ private fun ContentDashboard(
 
                 // ── Featured sections ──
                 if (topSongs.isNotEmpty() || playlistPreviews.isNotEmpty()) {
-                    // Top Charts
+                    // Your Top 50 (ranked by lifetime minutes listened)
                     if (topSongs.isNotEmpty()) {
                         item {
                             Column(Modifier.padding(start = 16.dp, end = 16.dp)) {
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    SectionTitle("Top Charts")
+                                    SectionTitle("Your Top 50")
                                     TextButton(onClick = onNavigateToTop50) {
                                         Text("See all", color = PurpleAccent.copy(0.7f), fontSize = 11.sp, letterSpacing = 1.sp)
                                     }
                                 }
-                                Column { topSongs.forEachIndexed { idx, (song, count) ->
-                                    TopChartRow(rank = idx + 1, song = song, playCount = count, onClick = { onSongClick(song) })
+                                Column { topSongs.forEachIndexed { idx, song ->
+                                    Top50ByMinutesRow(rank = idx + 1, song = song, onClick = { onSongClick(song) })
                                 }}
                                 Spacer(Modifier.height(16.dp))
                             }
@@ -997,9 +1005,12 @@ private fun QuickPlayCard(song: Song, onClick: () -> Unit = {}) {
     }
 }
 
-// ── Top Chart Row ─────────────────────────────────────────────────
+// ── Top 50 by Minutes Row ────────────────────────────────────────
+// Ranked by lifetime minutes listened. NO metric shown — the row
+// is just rank, art, title, artist. The user infers the ranking
+// from position alone.
 @Composable
-private fun TopChartRow(rank: Int, song: Song, playCount: Int, onClick: () -> Unit) {
+private fun Top50ByMinutesRow(rank: Int, song: Song, onClick: () -> Unit) {
     val context = LocalContext.current
     Row(
         modifier = Modifier
@@ -1048,7 +1059,6 @@ private fun TopChartRow(rank: Int, song: Song, playCount: Int, onClick: () -> Un
             Text(song.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextPrimary, maxLines = 1)
             Text(song.artist, fontSize = 11.sp, color = TextSecondary, maxLines = 1)
         }
-        Text("$playCount", color = PurpleAccent.copy(0.8f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
 }
 

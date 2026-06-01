@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -24,11 +25,10 @@ import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.example.cassie.data.media.FavoritesStore
-import com.example.cassie.data.media.ListeningCounter
 import com.example.cassie.data.media.PlaybackManager
 import com.example.cassie.data.media.Song
+import com.example.cassie.party.SkipperEngine
 import com.example.cassie.ui.theme.CassieColors
-import androidx.compose.ui.platform.LocalContext
 
 // ── Theme Tokens ──────────────────────────────────────────────────
 private val PureBlack     = CassieColors.PureBlack
@@ -39,17 +39,26 @@ private val TextPrimary   = CassieColors.TextPrimary
 private val TextSecondary = CassieColors.TextSecondary
 private val TextDim       = CassieColors.TextDim
 
+/**
+ * The full "Your Top 50" screen.
+ *
+ * Ranked by lifetime minutes listened (from SkipperEngine.stats).
+ * The minute count is NEVER shown in the UI — the list is just a
+ * ranking. The metric is internal: Skipper uses it for pattern
+ * detection, but the user only sees the order.
+ */
 @Composable
 fun Top50Screen(
     songs: List<Song>,
-    listeningCounter: ListeningCounter?,
     playbackManager: PlaybackManager?,
     favoritesStore: FavoritesStore? = null,
     onSongClick: (Song) -> Unit,
     onBack: () -> Unit,
 ) {
-    val top50 = remember(songs, listeningCounter?.counts?.value) {
-        listeningCounter?.getTop50(songs) ?: emptyList()
+    val topByMinutes by SkipperEngine.topSongsByMinutes.collectAsState()
+    val top50 = remember(topByMinutes, songs) {
+        topByMinutes
+            .mapNotNull { (id, _) -> songs.find { it.id == id } }
     }
 
     val context = LocalContext.current
@@ -63,10 +72,22 @@ fun Top50Screen(
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             item {
-                Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = TextPrimary) }
-                    Text("TOP 50", color = TextDim, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
-                    Text("${top50.size} songs", color = TextDim, fontSize = 11.sp)
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = TextPrimary)
+                    }
+                    Text(
+                        "YOUR TOP 50",
+                        color = TextDim,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 3.sp
+                    )
+                    Spacer(Modifier.width(48.dp))
                 }
             }
 
@@ -76,16 +97,22 @@ fun Top50Screen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.AutoMirrored.Filled.TrendingUp, null, tint = TextDim, modifier = Modifier.size(56.dp))
                             Spacer(Modifier.height(12.dp))
-                            Text("No plays yet", color = TextSecondary, fontSize = 16.sp)
-                            Text("Start listening to build your chart!", color = TextDim, fontSize = 13.sp)
+                            Text("Nothing here yet", color = TextSecondary, fontSize = 16.sp)
+                            Text(
+                                "Listen for a few minutes and your most-played songs will start showing up here.",
+                                color = TextDim,
+                                fontSize = 13.sp,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)
+                            )
                         }
                     }
                 }
             }
 
-            itemsIndexed(top50, key = { _, pair -> pair.first.id }) { index, (song, count) ->
-                Top50Row(index + 1, song, count, context, onClick = {
-                    playbackManager?.playInContext(song, top50.map { it.first })
+            itemsIndexed(top50, key = { _, song -> song.id }) { index, song ->
+                Top50ByMinutesRow(index + 1, song, context, onClick = {
+                    playbackManager?.playInContext(song, top50)
                     onSongClick(song)
                 })
             }
@@ -94,7 +121,12 @@ fun Top50Screen(
 }
 
 @Composable
-private fun Top50Row(index: Int, song: Song, playCount: Int, context: android.content.Context, onClick: () -> Unit) {
+private fun Top50ByMinutesRow(
+    index: Int,
+    song: Song,
+    context: android.content.Context,
+    onClick: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -103,7 +135,7 @@ private fun Top50Row(index: Int, song: Song, playCount: Int, context: android.co
             .padding(vertical = 8.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // rank
+        // rank (no metric)
         Box(Modifier.width(28.dp), contentAlignment = Alignment.Center) {
             if (index == 1) {
                 Icon(Icons.Default.MilitaryTech, null, tint = Color(0xFFFFD700), modifier = Modifier.size(24.dp))
@@ -128,7 +160,9 @@ private fun Top50Row(index: Int, song: Song, playCount: Int, context: android.co
                         ImageRequest.Builder(context).data(song.albumArtUri).size(88)
                             .memoryCachePolicy(CachePolicy.ENABLED).diskCachePolicy(CachePolicy.ENABLED).build()
                     },
-                    contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
                 )
             } else {
                 Icon(Icons.Default.MusicNote, null, tint = PurpleAccent.copy(alpha = 0.5f), modifier = Modifier.size(22.dp))
@@ -137,12 +171,8 @@ private fun Top50Row(index: Int, song: Song, playCount: Int, context: android.co
         Spacer(Modifier.width(12.dp))
 
         Column(Modifier.weight(1f)) {
-            Text(song.title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary, maxLines = 1)
-            Text(song.artist, fontSize = 12.sp, color = TextSecondary, maxLines = 1)
+            Text(song.title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(song.artist, fontSize = 12.sp, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-
-        Text("$playCount", color = PurpleAccent.copy(0.8f), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.width(4.dp))
-        Text("plays", color = TextDim, fontSize = 11.sp)
     }
 }

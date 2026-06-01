@@ -8,8 +8,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
@@ -59,6 +62,33 @@ object SkipperEngine {
      * patterns detected).
      */
     val currentLine: StateFlow<SkipperLine?> = _currentLine.asStateFlow()
+
+    /**
+     * Bumps on every event so flows downstream of [stats] can recompute.
+     * The patterns flow only changes when the pattern signature changes,
+     * so the minutes list needs its own trigger to update on each
+     * `MinutesListenedTicked`.
+     */
+    private val _statsVersion = MutableStateFlow(0L)
+
+    /**
+     * Top 50 songs ranked by lifetime minutes listened (descending).
+     * Each entry is (songId, minutes). The UI joins this against the
+     * full song list to render album art / title / artist.
+     *
+     * We never expose the minute count to the UI; the list is just a
+     * ranking. The metric is for Skipper's own benefit (used internally
+     * for pattern detection) — surfacing it would break the
+     * "no numbers" rule the user asked for.
+     */
+    val topSongsByMinutes: StateFlow<List<Pair<Long, Int>>> =
+        _statsVersion.map { _ ->
+            stats.minutesPerSong.entries
+                .filter { it.value > 0 }
+                .sortedByDescending { it.value }
+                .take(50)
+                .map { it.key to it.value }
+        }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     /** Source of truth for whether party mode is active. */
     @Volatile var isPartyMode: Boolean = false
@@ -152,6 +182,10 @@ object SkipperEngine {
         if (shouldRegenerateOn(event, sigChanged, now)) {
             regenerateLine(force = false, reason = "event:${event::class.simpleName}")
         }
+
+        // 8. bump the stats-version flow so derived flows (top-50
+        //    ranking, etc.) can recompute.
+        _statsVersion.value = now
     }
 
     private fun shouldRegenerateOn(
