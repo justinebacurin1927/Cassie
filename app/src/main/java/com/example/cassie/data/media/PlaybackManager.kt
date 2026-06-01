@@ -13,6 +13,9 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.example.cassie.party.StartSource
+import com.example.cassie.party.UserEvent
+import com.example.cassie.party.UserEventStream
 import com.google.common.util.concurrent.FutureCallback
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.MoreExecutors
@@ -44,6 +47,21 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
 
     private var controller: MediaController? = null
     private var currentSongIndex: Int = -1
+
+    // ── previous-song tracking (for skip vs complete detection) ──
+    private var prevSongId: Long? = null
+    private var prevSongStartedAt: Long = 0L
+    private var prevSongDurationMs: Long = 0L
+    private var lastEmittedPlayingState: Boolean = false
+
+    // ── Media3 transition reason constants (stable ints across versions) ──
+    // We use raw ints instead of Player.MEDIA_ITEM_TRANSITION_REASON_*
+    // because the static-field resolution from Kotlin varies across
+    // Media3 minor versions. The values themselves are stable.
+    private companion object {
+        const val TRANSITION_REASON_AUTO = 0
+        const val TRANSITION_REASON_USER = 3
+    }
 
     /** Queue of actions that execute once the controller connects. */
     private val pendingActions = mutableListOf<((MediaController) -> Unit)>()
@@ -155,13 +173,115 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
     private val controllerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _playerState.update { it.copy(isPlaying = isPlaying) }
+            // Translate playing-state edges into Skipper pause/resume events.
+            val c = controller ?: return
+            val song = _playerState.value.currentSong
+            if (isPlaying && !lastEmittedPlayingState && song != null) {
+                UserEventStream.emit(
+                    UserEvent.SongResumed(
+                        timestamp = System.currentTimeMillis(),
+                        sessionId = UserEventStream.currentSessionId,
+                        songId = song.id,
+                    )
+                )
+            } else if (!isPlaying && lastEmittedPlayingState && song != null) {
+                UserEventStream.emit(
+                    UserEvent.SongPaused(
+                        timestamp = System.currentTimeMillis(),
+                        sessionId = UserEventStream.currentSessionId,
+                        songId = song.id,
+                        positionMs = c.currentPosition,
+                    )
+                )
+            }
+            lastEmittedPlayingState = isPlaying
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             val c = controller ?: return
+            val now = System.currentTimeMillis()
             val idx = c.currentMediaItemIndex
             currentSongIndex = idx
             val song = _playerState.value.queue.getOrNull(idx)
+
+            // ── 1. emit the OUTGOING song's terminal event ───────────
+            val outgoingId = prevSongId
+            val outgoingDuration = prevSongDurationMs
+            if (outgoingId != null && song != null && outgoingId != song.id) {
+                val outgoingPosition = (now - prevSongStartedAt).coerceAtLeast(0L)
+                when (reason) {
+                    TRANSITION_REASON_AUTO -> {
+                        // Natural transition — previous song completed.
+                        UserEventStream.emit(
+                            UserEvent.SongCompleted(
+                                timestamp = now,
+                                sessionId = UserEventStream.currentSessionId,
+                                songId = outgoingId,
+                            )
+                        )
+                    }
+                    TRANSITION_REASON_USER -> {
+                        // User pressed next/previous — treat as a skip
+                        // (whether they wanted to hear the next song or
+                        // went back to the previous one, the previous
+                        // song's playback ended by user action).
+                        UserEventStream.emit(
+                            UserEvent.SongSkipped(
+                                timestamp = now,
+                                sessionId = UserEventStream.currentSessionId,
+                                songId = outgoingId,
+                                positionMs = outgoingPosition,
+                                songDurationMs = outgoingDuration,
+                            )
+                        )
+                    }
+                    else -> {
+                        // PLAYLIST_CHANGED / SEEK — ambiguous. If we
+                        // spent <80% of the song, treat as a skip;
+                        // otherwise let it fall through silently (the
+                        // recognizer doesn't punish queue edits).
+                        if (outgoingDuration > 0 &&
+                            outgoingPosition < (outgoingDuration * 0.8f).toLong()
+                        ) {
+                            UserEventStream.emit(
+                                UserEvent.SongSkipped(
+                                    timestamp = now,
+                                    sessionId = UserEventStream.currentSessionId,
+                                    songId = outgoingId,
+                                    positionMs = outgoingPosition,
+                                    songDurationMs = outgoingDuration,
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ── 2. emit the INCOMING song's start event ──────────────
+            if (idx >= 0 && song != null) {
+                val source = when (reason) {
+                    TRANSITION_REASON_AUTO -> StartSource.AUTO_ADVANCE
+                    TRANSITION_REASON_USER -> StartSource.MANUAL_PICK
+                    else -> StartSource.MANUAL_PICK
+                }
+                UserEventStream.emit(
+                    UserEvent.SongStarted(
+                        timestamp = now,
+                        sessionId = UserEventStream.currentSessionId,
+                        songId = song.id,
+                        title = song.title,
+                        artist = song.artist,
+                        durationMs = song.duration,
+                        source = source,
+                    )
+                )
+                // Remember this song so the NEXT transition can describe it.
+                prevSongId = song.id
+                prevSongStartedAt = now
+                prevSongDurationMs = song.duration
+            }
+
+            // ── 3. existing player-state update (unchanged) ─────────
             if (idx >= 0) {
                 _playerState.update {
                     it.copy(
@@ -174,10 +294,38 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
                     listeningCounter.recordPlay(song.id)
                     saveLastSong(song)
                 }
-                // Refresh audioSessionId for equalizer
                 val sid = CassiePlaybackService.getPlayer()?.audioSessionId ?: -1
                 if (sid != _playerState.value.audioSessionId) {
                     _playerState.update { it.copy(audioSessionId = sid) }
+                }
+            }
+        }
+
+        /**
+         * Detects repeat-one loops. When the player is in REPEAT_MODE_ONE
+         * and the position resets to ~0 because of an automatic
+         * transition, that's a "song looped" event.
+         */
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int,
+        ) {
+            if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) {
+                val c = controller ?: return
+                if (c.repeatMode == Player.REPEAT_MODE_ONE) {
+                    val song = _playerState.value.currentSong ?: return
+                    UserEventStream.emit(
+                        UserEvent.SongLooped(
+                            timestamp = System.currentTimeMillis(),
+                            sessionId = UserEventStream.currentSessionId,
+                            songId = song.id,
+                        )
+                    )
+                    // The "new" song is the same song — keep prevSongId
+                    // pointing at it but reset the start timestamp so
+                    // the next loop's elapsed time is correct.
+                    prevSongStartedAt = System.currentTimeMillis()
                 }
             }
         }
@@ -190,10 +338,24 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
 
         override fun onShuffleModeEnabledChanged(enabled: Boolean) {
             _playerState.update { it.copy(shuffleMode = enabled) }
+            UserEventStream.emit(
+                UserEvent.ShuffleToggled(
+                    timestamp = System.currentTimeMillis(),
+                    sessionId = UserEventStream.currentSessionId,
+                    enabled = enabled,
+                )
+            )
         }
 
         override fun onRepeatModeChanged(mode: Int) {
             _playerState.update { it.copy(repeatMode = mode) }
+            UserEventStream.emit(
+                UserEvent.RepeatModeChanged(
+                    timestamp = System.currentTimeMillis(),
+                    sessionId = UserEventStream.currentSessionId,
+                    mode = mode,
+                )
+            )
         }
     }
 
@@ -267,8 +429,22 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
     }
 
     fun seekTo(position: Long) {
+        val c = controller
+        val fromMs = c?.currentPosition ?: _playerState.value.currentPosition
+        val songId = _playerState.value.currentSong?.id
         withController { it.seekTo(position) }
         _playerState.update { it.copy(currentPosition = position) }
+        if (songId != null) {
+            UserEventStream.emit(
+                UserEvent.SongSeeked(
+                    timestamp = System.currentTimeMillis(),
+                    sessionId = UserEventStream.currentSessionId,
+                    songId = songId,
+                    fromMs = fromMs,
+                    toMs = position,
+                )
+            )
+        }
     }
 
     fun skipToNext() {
@@ -277,6 +453,16 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
 
     fun skipToPrevious() {
         withController { it.seekToPreviousMediaItem() }
+        val song = _playerState.value.currentSong
+        if (song != null) {
+            UserEventStream.emit(
+                UserEvent.SongReplayed(
+                    timestamp = System.currentTimeMillis(),
+                    sessionId = UserEventStream.currentSessionId,
+                    songId = song.id,
+                )
+            )
+        }
     }
 
     fun toggleShuffle() {
@@ -304,6 +490,13 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
     fun setSleepTimer(minutes: Int) {
         cancelSleepTimer()
         val sec = minutes * 60
+        UserEventStream.emit(
+            UserEvent.SleepTimerSet(
+                timestamp = System.currentTimeMillis(),
+                sessionId = UserEventStream.currentSessionId,
+                minutes = minutes,
+            )
+        )
         _playerState.update { it.copy(sleepTimerRemainingSec = sec) }
         sleepHandler = Handler(Looper.getMainLooper())
         sleepRunnable = object : Runnable {
@@ -332,6 +525,13 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
     fun togglePartyMode() {
         val newState = !_playerState.value.partyMode
         _playerState.update { it.copy(partyMode = newState) }
+        UserEventStream.emit(
+            UserEvent.PartyModeToggled(
+                timestamp = System.currentTimeMillis(),
+                sessionId = UserEventStream.currentSessionId,
+                enabled = newState,
+            )
+        )
         if (newState) {
             // PARTY HARD: shuffle + repeat all + max energy
             withController { c ->

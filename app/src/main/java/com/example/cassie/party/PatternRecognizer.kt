@@ -1,0 +1,275 @@
+package com.example.cassie.party
+
+/**
+ * Translates a stream of [UserEvent]s into a [BehaviorStats] snapshot,
+ * then derives a list of [UserPattern]s from that snapshot.
+ *
+ * The recognizer is the ONLY place that knows what counts as a SKIPPER
+ * or a LOOPER. Tune the thresholds in this file; everything else just
+ * consumes the result.
+ *
+ * Design rules:
+ *  - All thresholds are conservative (high precision > high recall).
+ *    A wrong pattern call is much worse than a missing one — Skipper
+ *    never wants to be confidently wrong.
+ *  - Patterns are evaluated in a fixed order. Later patterns can read
+ *    stats mutated by earlier patterns in the same pass.
+ *  - The recognizer is pure: it does not emit events, it does not write
+ *    to storage, and it does not generate any text. Side-effects live
+ *    in [SkipperEngine].
+ */
+class PatternRecognizer {
+
+    /**
+     * Mutate [stats] in place to reflect [event], then return the new
+     * full snapshot. The returned value is the same object as [stats]
+     * — we return it for fluent chaining.
+     */
+    fun applyEvent(stats: BehaviorStats, event: UserEvent): BehaviorStats {
+        when (event) {
+            is UserEvent.SongStarted -> {
+                val isNewSong = stats.currentSongId != event.songId
+                stats.currentSongId = event.songId
+                stats.currentSongStartedAt = event.timestamp
+                stats.currentSongLoopCount = 0
+                if (isNewSong) {
+                    stats.totalSongsStarted += 1
+                    // A new song starting means the previous one was
+                    // neither paused-and-resumed nor still playing, so
+                    // we don't add anything to recentSkips here.
+                }
+            }
+            is UserEvent.SongSkipped -> {
+                stats.totalSongsSkipped += 1
+                if (event.positionMs < 30_000L) {
+                    stats.totalSkipsBefore30s += 1
+                }
+                stats.recentSkips = (stats.recentSkips + true).takeLast(RECENT_WINDOW)
+            }
+            is UserEvent.SongReplayed -> {
+                stats.totalSongsReplayed += 1
+            }
+            is UserEvent.SongLooped -> {
+                stats.totalSongLoops += 1
+                if (event.songId == stats.currentSongId) {
+                    stats.currentSongLoopCount += 1
+                }
+                stats.loopsPerSong = stats.loopsPerSong.updateAt(event.songId) { (it) + 1 }
+            }
+            is UserEvent.SongPaused -> {
+                // Pause doesn't change stats; the next SongStarted or
+                // SongResumed will move the song pointer.
+            }
+            is UserEvent.SongResumed -> {
+                // Same as pause — no counters change.
+            }
+            is UserEvent.SongSeeked -> {
+                // A seek-to-position that lands within 5 seconds of 0
+                // counts as a replay-style "I want to hear it again".
+                if (event.toMs < 5_000L && event.fromMs > 10_000L) {
+                    stats.totalSongsReplayed += 1
+                }
+            }
+            is UserEvent.SongCompleted -> {
+                stats.totalSongsCompleted += 1
+                // Natural completion is the opposite of a skip — pad
+                // the recent window with a "not skipped" entry so
+                // skip-rate stays meaningful across both signals.
+                stats.recentSkips = (stats.recentSkips + false).takeLast(RECENT_WINDOW)
+            }
+            is UserEvent.PartyModeToggled -> {
+                if (event.enabled) stats.totalPartyModeToggles += 1
+            }
+            is UserEvent.RepeatModeChanged -> {
+                // Repeat-mode changes only matter for the LOOPER signal,
+                // which we compute at detect-time, so no live counter
+                // change here.
+            }
+            is UserEvent.ShuffleToggled -> {
+                if (event.enabled) stats.totalShuffleToggles += 1
+            }
+            is UserEvent.SleepTimerSet -> {
+                stats.totalSleepTimerSets += 1
+            }
+            is UserEvent.FavoriteToggled -> {
+                stats.totalFavoriteToggles += 1
+            }
+            is UserEvent.LyricsOpened -> {
+                stats.totalLyricsOpens += 1
+            }
+            is UserEvent.AppForegrounded -> {
+                stats.totalAppForegrounds += 1
+                val hour = Clock.hourOfDay(event.timestamp)
+                stats.foregroundsByHour = stats.foregroundsByHour.updateAt(hour) { (it) + 1 }
+            }
+            is UserEvent.AppBackgrounded -> {
+                stats.totalAppBackgrounds += 1
+            }
+            is UserEvent.MinutesListenedTicked -> {
+                stats.totalMinutesListened += 1
+                stats.minutesPerSong = stats.minutesPerSong.updateAt(event.songId) { (it) + 1 }
+            }
+        }
+        stats.lastUpdatedMs = event.timestamp
+        return stats
+    }
+
+    /**
+     * Re-evaluate all patterns against the current [stats] snapshot.
+     * Returns the list of patterns that currently apply, in priority
+     * order (most-confident first).
+     */
+    fun detect(stats: BehaviorStats): List<UserPattern> {
+        val out = mutableListOf<UserPattern>()
+        detectSkippers(stats, out)
+        detectLoopers(stats, out)
+        detectReplayers(stats, out)
+        detectMarathoners(stats, out)
+        detectPartiers(stats, out)
+        detectExplorers(stats, out)
+        detectNightOwls(stats, out)
+        detectFavoriteHoarders(stats, out)
+        detectLyricsLovers(stats, out)
+        return out.sortedByDescending { it.confidence }
+    }
+
+    // ── Per-pattern detectors ──────────────────────────────────────
+
+    private fun detectSkippers(s: BehaviorStats, out: MutableList<UserPattern>) {
+        if (s.recentSkips.size < 10) return // not enough data yet
+        if (s.recentSkipRate >= 0.70f) {
+            val pct = (s.recentSkipRate * 100).toInt()
+            out += UserPattern(
+                type = UserPatternType.SKIPPER,
+                confidence = clamp(s.recentSkipRate),
+                evidence = "skipped $pct% of the last ${s.recentSkips.size} songs",
+                detectedAtMs = System.currentTimeMillis(),
+            )
+        }
+    }
+
+    private fun detectLoopers(s: BehaviorStats, out: MutableList<UserPattern>) {
+        val currentLoops = s.currentSongLoopCount
+        val totalLoops = s.totalSongLoops
+        when {
+            currentLoops >= 3 -> out += UserPattern(
+                type = UserPatternType.LOOPER,
+                confidence = clamp(currentLoops / 5f),
+                evidence = "looped the current song $currentLoops times",
+                detectedAtMs = System.currentTimeMillis(),
+            )
+            totalLoops >= 8 -> out += UserPattern(
+                type = UserPatternType.LOOPER,
+                confidence = 0.5f,
+                evidence = "$totalLoops repeat-loops across recent listening",
+                detectedAtMs = System.currentTimeMillis(),
+            )
+        }
+    }
+
+    private fun detectReplayers(s: BehaviorStats, out: MutableList<UserPattern>) {
+        if (s.minutesPerSong.isEmpty()) return
+        val topId = s.topReplaySongId ?: return
+        val topMinutes = s.minutesPerSong[topId] ?: 0
+        val totalMinutes = s.totalMinutesListened.coerceAtLeast(1)
+        val share = topMinutes.toFloat() / totalMinutes
+        if (topMinutes >= 10 && share >= 0.35f) {
+            out += UserPattern(
+                type = UserPatternType.REPEATER,
+                confidence = clamp(share),
+                evidence = "one song accounts for ${(share * 100).toInt()}% of recent listening",
+                detectedAtMs = System.currentTimeMillis(),
+            )
+        }
+    }
+
+    private fun detectMarathoners(s: BehaviorStats, out: MutableList<UserPattern>) {
+        val current = s.currentSongId?.let { s.minutesPerSong[it] } ?: 0
+        val max = s.maxMinutesOnOneSong
+        when {
+            current >= 10 -> out += UserPattern(
+                type = UserPatternType.MARATHONER,
+                confidence = clamp(current / 20f),
+                evidence = "been on the current song for $current minutes",
+                detectedAtMs = System.currentTimeMillis(),
+            )
+            max >= 30 -> out += UserPattern(
+                type = UserPatternType.MARATHONER,
+                confidence = 0.5f,
+                evidence = "longest single-song session this week: ${max}m",
+                detectedAtMs = System.currentTimeMillis(),
+            )
+        }
+    }
+
+    private fun detectPartiers(s: BehaviorStats, out: MutableList<UserPattern>) {
+        if (s.totalPartyModeToggles >= 3) {
+            out += UserPattern(
+                type = UserPatternType.PARTIER,
+                confidence = clamp(s.totalPartyModeToggles / 6f),
+                evidence = "toggled party mode ${s.totalPartyModeToggles} times",
+                detectedAtMs = System.currentTimeMillis(),
+            )
+        }
+    }
+
+    private fun detectExplorers(s: BehaviorStats, out: MutableList<UserPattern>) {
+        val unique = s.uniqueSongsListenedTo
+        if (unique >= 15 && s.recentSkipRate < 0.4f) {
+            out += UserPattern(
+                type = UserPatternType.EXPLORER,
+                confidence = clamp(unique / 30f),
+                evidence = "listened past 30s on $unique different songs",
+                detectedAtMs = System.currentTimeMillis(),
+            )
+        }
+    }
+
+    private fun detectNightOwls(s: BehaviorStats, out: MutableList<UserPattern>) {
+        if (s.totalAppForegrounds < 5) return
+        if (s.nightOwlRate >= 0.4f) {
+            out += UserPattern(
+                type = UserPatternType.NIGHT_OWL,
+                confidence = clamp(s.nightOwlRate),
+                evidence = "${(s.nightOwlRate * 100).toInt()}% of app opens were after 22:00",
+                detectedAtMs = System.currentTimeMillis(),
+            )
+        }
+    }
+
+    private fun detectFavoriteHoarders(s: BehaviorStats, out: MutableList<UserPattern>) {
+        if (s.totalFavoriteToggles >= 30) {
+            out += UserPattern(
+                type = UserPatternType.FAVORITE_HOARDER,
+                confidence = clamp(s.totalFavoriteToggles / 60f),
+                evidence = "favorited/unfavorited ${s.totalFavoriteToggles} songs",
+                detectedAtMs = System.currentTimeMillis(),
+            )
+        }
+    }
+
+    private fun detectLyricsLovers(s: BehaviorStats, out: MutableList<UserPattern>) {
+        if (s.totalLyricsOpens >= 5) {
+            out += UserPattern(
+                type = UserPatternType.LYRICS_LOVER,
+                confidence = clamp(s.totalLyricsOpens / 15f),
+                evidence = "opened lyrics ${s.totalLyricsOpens} times",
+                detectedAtMs = System.currentTimeMillis(),
+            )
+        }
+    }
+
+    // ── helpers ─────────────────────────────────────────────────────
+
+    private fun <K> Map<K, Int>.updateAt(key: K, fn: (Int) -> Int): Map<K, Int> {
+        val current = this[key] ?: 0
+        return this + (key to fn(current))
+    }
+
+    private fun clamp(v: Float): Float = v.coerceIn(0f, 1f)
+
+    companion object {
+        /** How many of the most-recent song-starts we keep for skip-rate. */
+        const val RECENT_WINDOW = 20
+    }
+}

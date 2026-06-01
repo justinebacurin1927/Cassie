@@ -46,6 +46,8 @@ import com.example.cassie.data.media.PlaybackManager
 import com.example.cassie.data.media.Playlist
 import com.example.cassie.data.media.PlaylistStore
 import com.example.cassie.data.media.Song
+import com.example.cassie.party.SkipperEngine
+import com.example.cassie.ui.party.SkipperDebugCard
 import com.example.cassie.ui.theme.CassieColors
 import com.example.cassie.ui.theme.CassieDialog
 
@@ -313,10 +315,18 @@ private fun ContentDashboard(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 contentPadding = PaddingValues(bottom = 4.dp)
             ) {
-                // ── Mascot Mood Card (scrolls with content) ──
+                // ── Mascot Mood Card + Skipper debug (scrolls with content) ──
                 item {
                     Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
                         MascotMoodCard(playbackManager = playbackManager)
+                        Spacer(Modifier.height(12.dp))
+                        // Skipper debug card — temporary verification
+                        // surface. Will be replaced with the polished
+                        // SkipperCard (penguin + generated line) once
+                        // line generation lands in Sprint 2.
+                        SkipperDebugCard(
+                            modifier = Modifier.clickable { SkipperEngine.resetStats() }
+                        )
                         Spacer(Modifier.height(12.dp))
                     }
                 }

@@ -17,7 +17,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.cassie.R
-import com.example.cassie.data.media.OnlineMoodDetector
 import com.example.cassie.data.media.PlaybackManager
 
 // ── Palette ──
@@ -174,51 +173,14 @@ private fun moodForTitle(title: String): PenguinMood {
 @Composable
 fun MascotMoodCard(
     playbackManager: PlaybackManager?,
-    onlineMoodDetector: OnlineMoodDetector? = null,
 ) {
-    // Create detector inside body so remember works reliably
-    val detector = remember { onlineMoodDetector ?: OnlineMoodDetector() }
-
     val state = playbackManager?.let { it.playerState.collectAsState() }
     val currentSong = state?.value?.currentSong
 
-    // Local keyword-based fallback
-    val localMood = remember(currentSong) {
+    // Local keyword-based mood detection only (fast, no network)
+    val mood = remember(currentSong) {
         if (currentSong != null) moodForTitle(currentSong.title)
         else PenguinMood.GREETING
-    }
-
-    // Online API mood (starts -1 = pending, 0 = GREETING, 1-5 = specific moods)
-    var onlineMoodIndex by remember { mutableIntStateOf(-1) }
-
-    // Fetch from Last.fm API whenever the song changes
-    LaunchedEffect(currentSong) {
-        try {
-            if (currentSong != null) {
-                val result = detector.detectMood(currentSong)
-                onlineMoodIndex = result
-            } else {
-                onlineMoodIndex = -1
-            }
-        } catch (_: Exception) {
-            onlineMoodIndex = 0 // fallback to GREETING
-        }
-    }
-
-    // Final mood: smart merge of online + local detection
-    // - If online returns a specific mood (1-5) → use it
-    // - If online returns GREETING (0) but local detected something → use local
-    // - If online is still loading (-1) → just show GREETING, NO flash of localMood
-    val mood = remember(localMood, onlineMoodIndex, currentSong) {
-        if (currentSong != null) {
-            when {
-                onlineMoodIndex > 0 -> PenguinMood.entries[onlineMoodIndex]        // online found a mood
-                onlineMoodIndex == 0 && localMood != PenguinMood.GREETING -> localMood // online said GREETING but local knows better
-                else -> PenguinMood.GREETING                                         // loading or both agree on GREETING
-            }
-        } else {
-            PenguinMood.GREETING
-        }
     }
 
     var messageIndex by remember(mood) { mutableIntStateOf(kotlin.random.Random.nextInt(mood.messages.size)) }
