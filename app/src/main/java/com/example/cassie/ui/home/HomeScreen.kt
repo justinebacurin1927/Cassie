@@ -186,14 +186,15 @@ fun HomeScreen(
 
     // LazyColumn index where the first song starts. The alphabet
     // sidebar uses this to land jumps exactly on a letter.
+    // Playlists section is now ALWAYS visible (empty-state card when
+    // there are no playlists), so it always counts as one row.
     val songsStartIndex = remember(
         topSongs.isNotEmpty(),
-        playlistPreviews.isNotEmpty(),
         vibeStats.totalPlays > 0,
     ) {
         var idx = 1                              // Skipper card
         if (topSongs.isNotEmpty()) idx++        // Your Top 50
-        if (playlistPreviews.isNotEmpty()) idx++ // Playlists
+        idx++                                   // Playlists (always)
         idx++                                   // separator
         if (vibeStats.totalPlays > 0) idx++     // Vibe card
         idx                                     // Your Library header
@@ -719,71 +720,102 @@ private fun ContentDashboard(
                 }
 
                 // ── Featured sections ──
-                if (topSongs.isNotEmpty() || playlistPreviews.isNotEmpty()) {
-                    // Your Top 50 (ranked by lifetime minutes listened)
-                    if (topSongs.isNotEmpty()) {
-                        item {
-                            Column(Modifier.padding(start = 16.dp, end = 16.dp)) {
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    SectionTitle("Your Top 50")
-                                    TextButton(onClick = onNavigateToTop50) {
-                                        Text("See all", color = PurpleAccent.copy(0.7f), fontSize = 11.sp, letterSpacing = 1.sp)
-                                    }
-                                }
-                                Column { topSongs.forEachIndexed { idx, song ->
-                                    Top50ByMinutesRow(rank = idx + 1, song = song, onClick = { onSongClick(song) })
-                                }}
-                                Spacer(Modifier.height(16.dp))
-                            }
-                        }
-                    }
-
-                    // Playlists (replaces old Albums row)
-                    if (playlistPreviews.isNotEmpty()) {
-                        item {
-                            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    SectionTitle("Playlists")
-                                    TextButton(onClick = onNavigateToPlaylists) {
-                                        Text("See all", color = PurpleAccent.copy(0.7f), fontSize = 11.sp, letterSpacing = 1.sp)
-                                    }
-                                }
-                                Spacer(Modifier.height(8.dp))
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    modifier = Modifier.horizontalScroll(rememberScrollState())
-                                ) {
-                                    playlistPreviews.forEach { playlist ->
-                                        val coverSong = songs.firstOrNull { it.id in playlist.songIds }
-                                        PlaylistPreviewCard(
-                                            playlist = playlist,
-                                            coverSong = coverSong,
-                                            onClick = onNavigateToPlaylists,
-                                            onPlayClick = { onPlaylistClick(playlist) },
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // separator
+                // Your Top 50 (gated on having data; Playlists shortcut
+                // is ALWAYS shown — the empty state still surfaces the
+                // "create your first playlist" path).
+                if (topSongs.isNotEmpty()) {
                     item {
-                        Box(
-                            Modifier
-                                .padding(horizontal = 16.dp, vertical = 4.dp)
-                                .fillMaxWidth()
-                                .height(1.dp)
-                                .background(CardGrey)
-                        )
+                        Column(Modifier.padding(start = 16.dp, end = 16.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                SectionTitle("Your Top 50")
+                                TextButton(onClick = onNavigateToTop50) {
+                                    Text("See all", color = PurpleAccent.copy(0.7f), fontSize = 11.sp, letterSpacing = 1.sp)
+                                }
+                            }
+                            Column { topSongs.forEachIndexed { idx, song ->
+                                Top50ByMinutesRow(rank = idx + 1, song = song, onClick = { onSongClick(song) })
+                            }}
+                            Spacer(Modifier.height(16.dp))
+                        }
                     }
+                }
+
+                // Playlists shortcut — always visible on Home. Horizontal
+                // scroll of previews when playlists exist; empty-state
+                // card otherwise so the user can tap to create one.
+                item {
+                    Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            SectionTitle("Playlists")
+                            TextButton(onClick = onNavigateToPlaylists) {
+                                Text("See all", color = PurpleAccent.copy(0.7f), fontSize = 11.sp, letterSpacing = 1.sp)
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        if (playlistPreviews.isEmpty()) {
+                            // Empty state — still a tap target, takes the
+                            // user to the Playlists screen where they can
+                            // create their first one.
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(96.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(CardGrey)
+                                    .clickable { onNavigateToPlaylists() }
+                                    .padding(horizontal = 16.dp),
+                                contentAlignment = Alignment.CenterStart,
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.PlaylistAdd,
+                                        contentDescription = null,
+                                        tint = PurpleAccent,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(
+                                        "No playlists yet — tap to create one",
+                                        color = TextSecondary,
+                                        fontSize = 13.sp,
+                                    )
+                                }
+                            }
+                        } else {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.horizontalScroll(rememberScrollState())
+                            ) {
+                                playlistPreviews.forEach { playlist ->
+                                    val coverSong = songs.firstOrNull { it.id in playlist.songIds }
+                                    PlaylistPreviewCard(
+                                        playlist = playlist,
+                                        coverSong = coverSong,
+                                        onClick = onNavigateToPlaylists,
+                                        onPlayClick = { onPlaylistClick(playlist) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // separator
+                item {
+                    Box(
+                        Modifier
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(CardGrey)
+                    )
+                }
 
                     // ── Your Vibe: listening stats card ──
-                    if (vibeStats.totalPlays > 0) {
-                        item { Spacer(Modifier.height(4.dp)) }
-                        item { VibeCard(stats = vibeStats) }
-                        item { Spacer(Modifier.height(8.dp)) }
-                    }
+                if (vibeStats.totalPlays > 0) {
+                    item { Spacer(Modifier.height(4.dp)) }
+                    item { VibeCard(stats = vibeStats) }
+                    item { Spacer(Modifier.height(8.dp)) }
                 }
 
                 // ── Your Library header ──
@@ -814,9 +846,9 @@ private fun ContentDashboard(
                     listState = listState,
                     songsStartIndex = songsStartIndex,
                     letterToSongIndex = letterToSongIndex,
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(end = 4.dp),
+                    // fillMaxSize so the bubble can anchor at the
+                    // center of the full home area, not the column.
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
         }

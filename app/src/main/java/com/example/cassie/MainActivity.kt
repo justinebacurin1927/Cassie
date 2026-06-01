@@ -193,8 +193,27 @@ private fun CassieApp() {
     }
 
     // ── system back button ─────────────────────────────────────────
-    BackHandler(backStack.size > 1) {
-        navigateBack()
+    // On any sub-screen: pop the stack.
+    // On Home (root): "press back again to exit" pattern, so the app
+    // never silently drops out from a single accidental back press.
+    val activity = androidx.compose.ui.platform.LocalContext.current as? android.app.Activity
+    var lastBackAt by remember { mutableStateOf(0L) }
+    BackHandler(enabled = true) {
+        if (backStack.size > 1) {
+            navigateBack()
+        } else {
+            val now = System.currentTimeMillis()
+            if (now - lastBackAt < 2_000L) {
+                activity?.finish()
+            } else {
+                lastBackAt = now
+                android.widget.Toast.makeText(
+                    ctx,
+                    "Press back again to exit",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
     }
 
     val songs = homeViewModel?.uiState?.collectAsState()?.value?.songs ?: emptyList()

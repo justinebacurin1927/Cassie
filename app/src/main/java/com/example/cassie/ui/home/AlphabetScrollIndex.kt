@@ -3,9 +3,12 @@ package com.example.cassie.ui.home
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,29 +26,33 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.lazy.LazyListState
 import com.example.cassie.ui.theme.CassieColors
 import kotlinx.coroutines.launch
 
 private val TextPrimary = CassieColors.TextPrimary
 private val TextDim     = CassieColors.TextDim
 private val PurpleAccent = CassieColors.PurpleAccent
+private val CardGrey     = CassieColors.CardGrey
 
 /**
  * Right-edge A–Z sidebar for fast song lookup.
  *
- * - Tap or drag a letter → smooth-scrolls to the first song beginning
- *   with that letter.
- * - The active letter is highlighted in [PurpleAccent].
- * - A big centered letter bubble appears while the user is actively
- *   touching the sidebar so they can see which letter they're on.
- * - The steady-state highlight (when the user is just scrolling the
- *   list, not touching the sidebar) follows the LazyColumn scroll
- *   position automatically.
+ * Behavior:
+ *  - Tap or drag a letter → instant-scrolls to the first song starting
+ *    with that letter (no animation — feels snappy on drag).
+ *  - A big centered letter bubble appears while the user is actively
+ *    pressing the sidebar; disappears the moment they lift their finger.
+ *  - The steady-state highlight (when the user is just scrolling the
+ *    list, not touching the sidebar) follows the LazyColumn scroll
+ *    position automatically.
+ *  - Letters with no songs are dimmed to 35% alpha (still tappable, but
+ *    no-op so the user can still see the index structure).
  *
- * @param listState   the LazyColumn that hosts the songs list
- * @param songsStartIndex  the LazyColumn item index of the first song
+ * @param listState          the LazyColumn that hosts the songs list
+ * @param songsStartIndex    the LazyColumn item index of the first song
  * @param letterToSongIndex  map of letter → song-list index
+ * @param modifier           should be `Modifier.fillMaxSize()` so the
+ *                           centered bubble has full area to anchor in
  */
 @Composable
 fun AlphabetScrollIndex(
@@ -74,34 +81,43 @@ fun AlphabetScrollIndex(
     fun jumpTo(letter: Char) {
         val songIdx = letterToSongIndex[letter] ?: return
         active = letter
+        // Instant scroll: snappy on drag. animateScrollToItem would lag
+        // because each new finger position fights the in-flight animation.
         scope.launch {
-            listState.animateScrollToItem(songsStartIndex + songIdx)
+            listState.scrollToItem(songsStartIndex + songIdx)
         }
     }
 
-    Box(modifier = modifier) {
-        // The letter column. One pointer handler on the whole column
-        // samples Y on every press so dragging along the edge jumps
-        // through letters smoothly.
+    BoxWithConstraints(
+        modifier = modifier.fillMaxSize()
+    ) {
+        // ── Letter column on the right edge ─────────────────────────
         Column(
             verticalArrangement = Arrangement.SpaceEvenly,
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 4.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color.Black.copy(alpha = 0.35f))
                 .padding(vertical = 6.dp, horizontal = 3.dp)
-                .pointerInput(letterToSongIndex, songsStartIndex) {
+                .pointerInput(letterToSongIndex, songsStartIndex, present) {
                     awaitPointerEventScope {
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull() ?: continue
-                            if (!change.pressed) continue
-                            val h = size.height.toFloat().coerceAtLeast(1f)
-                            val i = ((change.position.y / h) * letters.size)
-                                .toInt()
-                                .coerceIn(0, letters.lastIndex)
-                            val ch = letters[i]
-                            if (ch in present) jumpTo(ch)
+                            if (change.pressed) {
+                                val h = size.height.toFloat().coerceAtLeast(1f)
+                                val i = ((change.position.y / h) * letters.size)
+                                    .toInt()
+                                    .coerceIn(0, letters.lastIndex)
+                                val ch = letters[i]
+                                if (ch in present) jumpTo(ch)
+                            } else {
+                                // Pointer lifted — clear the bubble so
+                                // the UI goes "back to normal".
+                                if (active != null) active = null
+                            }
                         }
                     }
                 }
@@ -123,20 +139,22 @@ fun AlphabetScrollIndex(
             }
         }
 
-        // Centered bubble — only while the user is actively picking.
+        // ── Centered letter bubble — ONLY while actively picking ────
+        // `active != null` means the user is currently pressing; the
+        // moment they release, the pointer handler above clears it.
         active?.let { ch ->
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .size(64.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color.Black.copy(alpha = 0.78f))
+                    .size(72.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(CardGrey.copy(alpha = 0.92f))
             ) {
                 Text(
                     text = ch.toString(),
                     color = TextPrimary,
-                    fontSize = 32.sp,
+                    fontSize = 36.sp,
                     fontWeight = FontWeight.Bold,
                 )
             }
