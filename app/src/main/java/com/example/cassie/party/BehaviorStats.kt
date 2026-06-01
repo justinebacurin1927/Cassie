@@ -26,11 +26,16 @@ data class BehaviorStats(
     var totalLyricsOpens: Int = 0,
     var totalAppForegrounds: Int = 0,
     var totalAppBackgrounds: Int = 0,
-    var totalMinutesListened: Int = 0,
+    /**
+     * Lifetime minutes listened (float, 1/60 per 1s tick). Replaces
+     * the old int-per-minute model which dropped everything under 1
+     * minute.
+     */
+    var totalMinutesListened: Float = 0f,
 
     // ── Per-song aggregates ───────────────────────────────────────
-    /** songId -> lifetime minutes listened */
-    var minutesPerSong: Map<Long, Int> = emptyMap(),
+    /** songId -> lifetime minutes listened (float) */
+    var minutesPerSong: Map<Long, Float> = emptyMap(),
     /** songId -> lifetime loop count (repeat-one wraps) */
     var loopsPerSong: Map<Long, Int> = emptyMap(),
 
@@ -62,16 +67,16 @@ data class BehaviorStats(
         else totalSkipsBefore30s.toFloat() / totalSongsSkipped
 
     /** Highest play count for any single song (the user's "favorite replay"). */
-    val maxMinutesOnOneSong: Int
-        get() = minutesPerSong.values.maxOrNull() ?: 0
+    val maxMinutesOnOneSong: Float
+        get() = minutesPerSong.values.maxOrNull() ?: 0f
 
     /** songId of the most-replayed song, or null if no data. */
     val topReplaySongId: Long?
         get() = minutesPerSong.maxByOrNull { it.value }?.key
 
-    /** Number of songs the user has actually spent at least 1 minute on. */
+    /** Number of songs the user has actually spent at least 0.1 minute on. */
     val uniqueSongsListenedTo: Int
-        get() = minutesPerSong.count { it.value > 0 }
+        get() = minutesPerSong.count { it.value >= 0.1f }
 
     /** Fraction of all app-foregrounds that happened between 22:00 and 04:00. */
     val nightOwlRate: Float

@@ -15,11 +15,11 @@ data class SlotContext(
     /** How many times the current song has been repeat-one'd. */
     val currentLoopCount: Int = 0,
     /** How many minutes the user has spent on the current song. */
-    val currentMinutesListened: Int = 0,
+    val currentMinutesListened: Float = 0f,
 
     // ── Lifetime / aggregate (behavior only) ──
     val totalSongsStarted: Int = 0,
-    val totalMinutesListened: Int = 0,
+    val totalMinutesListened: Float = 0f,
     val totalSongsSkipped: Int = 0,
     val totalSongsCompleted: Int = 0,
     val totalFavorites: Int = 0,

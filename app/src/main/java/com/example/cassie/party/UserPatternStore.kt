@@ -49,8 +49,8 @@ class UserPatternStore(private val pm: PersistenceManager) {
                 totalLyricsOpens = obj.optInt("totalLyricsOpens"),
                 totalAppForegrounds = obj.optInt("totalAppForegrounds"),
                 totalAppBackgrounds = obj.optInt("totalAppBackgrounds"),
-                totalMinutesListened = obj.optInt("totalMinutesListened"),
-                minutesPerSong = obj.optJSONObject("minutesPerSong")?.let(::jsonToLongIntMap) ?: emptyMap(),
+                totalMinutesListened = obj.optDouble("totalMinutesListened", 0.0).toFloat(),
+                minutesPerSong = obj.optJSONObject("minutesPerSong")?.let(::jsonToLongFloatMap) ?: emptyMap(),
                 loopsPerSong = obj.optJSONObject("loopsPerSong")?.let(::jsonToLongIntMap) ?: emptyMap(),
                 recentSkips = obj.optJSONArray("recentSkips")?.let(::jsonToBooleanList) ?: emptyList(),
                 currentSongId = obj.optLong("currentSongId", -1L).takeIf { it >= 0 },
@@ -82,8 +82,8 @@ class UserPatternStore(private val pm: PersistenceManager) {
             obj.put("totalLyricsOpens", stats.totalLyricsOpens)
             obj.put("totalAppForegrounds", stats.totalAppForegrounds)
             obj.put("totalAppBackgrounds", stats.totalAppBackgrounds)
-            obj.put("totalMinutesListened", stats.totalMinutesListened)
-            obj.put("minutesPerSong", JSONObject(stats.minutesPerSong))
+            obj.put("totalMinutesListened", stats.totalMinutesListened.toDouble())
+            obj.put("minutesPerSong", floatMapToJson(stats.minutesPerSong))
             obj.put("loopsPerSong", JSONObject(stats.loopsPerSong))
             obj.put("recentSkips", JSONArray(stats.recentSkips))
             stats.currentSongId?.let { obj.put("currentSongId", it) }
@@ -109,6 +109,21 @@ class UserPatternStore(private val pm: PersistenceManager) {
             k.toLongOrNull()?.let { out[it] = v }
         }
         return out
+    }
+
+    private fun jsonToLongFloatMap(obj: JSONObject): Map<Long, Float> {
+        val out = mutableMapOf<Long, Float>()
+        obj.keys().forEach { k ->
+            val v = obj.optDouble(k, 0.0).toFloat()
+            k.toLongOrNull()?.let { out[it] = v }
+        }
+        return out
+    }
+
+    private fun floatMapToJson(map: Map<Long, Float>): JSONObject {
+        val obj = JSONObject()
+        map.forEach { (k, v) -> obj.put(k.toString(), v.toDouble()) }
+        return obj
     }
 
     private fun jsonToIntIntMap(obj: JSONObject): Map<Int, Int> {

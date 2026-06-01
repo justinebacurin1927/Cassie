@@ -81,10 +81,10 @@ object SkipperEngine {
      * for pattern detection) — surfacing it would break the
      * "no numbers" rule the user asked for.
      */
-    val topSongsByMinutes: StateFlow<List<Pair<Long, Int>>> =
+    val topSongsByMinutes: StateFlow<List<Pair<Long, Float>>> =
         _statsVersion.map { _ ->
             stats.minutesPerSong.entries
-                .filter { it.value > 0 }
+                .filter { it.value > 0f }
                 .sortedByDescending { it.value }
                 .take(50)
                 .map { it.key to it.value }
@@ -241,15 +241,15 @@ object SkipperEngine {
 
     private fun buildSlotContext(): SlotContext {
         val topSongId = stats.topReplaySongId
-        val topMinutes = topSongId?.let { stats.minutesPerSong[it] } ?: 0
-        val topShare = if (stats.totalMinutesListened > 0)
-            topMinutes.toFloat() / stats.totalMinutesListened else 0f
+        val topMinutes = topSongId?.let { stats.minutesPerSong[it] } ?: 0f
+        val topShare = if (stats.totalMinutesListened > 0f)
+            topMinutes / stats.totalMinutesListened else 0f
         val now = System.currentTimeMillis()
         return SlotContext(
             currentLoopCount = stats.currentSongLoopCount,
             currentMinutesListened = stats.currentSongId?.let {
-                stats.minutesPerSong[it] ?: 0
-            } ?: 0,
+                stats.minutesPerSong[it] ?: 0f
+            } ?: 0f,
             totalMinutesListened = stats.totalMinutesListened,
             totalSongsStarted = stats.totalSongsStarted,
             totalSongsSkipped = stats.totalSongsSkipped,

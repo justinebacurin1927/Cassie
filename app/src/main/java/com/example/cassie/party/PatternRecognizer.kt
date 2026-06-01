@@ -54,7 +54,7 @@ class PatternRecognizer {
                 if (event.songId == stats.currentSongId) {
                     stats.currentSongLoopCount += 1
                 }
-                stats.loopsPerSong = stats.loopsPerSong.updateAt(event.songId) { (it) + 1 }
+                stats.loopsPerSong = stats.loopsPerSong.updateAt(event.songId, { (it) + 1 }, 0)
             }
             is UserEvent.SongPaused -> {
                 // Pause doesn't change stats; the next SongStarted or
@@ -100,14 +100,15 @@ class PatternRecognizer {
             is UserEvent.AppForegrounded -> {
                 stats.totalAppForegrounds += 1
                 val hour = Clock.hourOfDay(event.timestamp)
-                stats.foregroundsByHour = stats.foregroundsByHour.updateAt(hour) { (it) + 1 }
+                stats.foregroundsByHour = stats.foregroundsByHour.updateAt(hour, { (it) + 1 }, 0)
             }
             is UserEvent.AppBackgrounded -> {
                 stats.totalAppBackgrounds += 1
             }
             is UserEvent.MinutesListenedTicked -> {
-                stats.totalMinutesListened += 1
-                stats.minutesPerSong = stats.minutesPerSong.updateAt(event.songId) { (it) + 1 }
+                // 1 second = 1/60 minute
+                stats.totalMinutesListened += 1f / 60f
+                stats.minutesPerSong = stats.minutesPerSong.updateAt(event.songId, { (it) + 1f / 60f }, 0f)
             }
         }
         stats.lastUpdatedMs = event.timestamp
@@ -176,10 +177,10 @@ class PatternRecognizer {
     private fun detectReplayers(s: BehaviorStats, out: MutableList<UserPattern>) {
         if (s.minutesPerSong.isEmpty()) return
         val topId = s.topReplaySongId ?: return
-        val topMinutes = s.minutesPerSong[topId] ?: 0
-        val totalMinutes = s.totalMinutesListened.coerceAtLeast(1)
-        val share = topMinutes.toFloat() / totalMinutes
-        if (topMinutes >= 5 && share >= 0.3f) {
+        val topMinutes = s.minutesPerSong[topId] ?: 0f
+        val totalMinutes = s.totalMinutesListened.coerceAtLeast(0.01f)
+        val share = topMinutes / totalMinutes
+        if (topMinutes >= 5f && share >= 0.3f) {
             out += UserPattern(
                 type = UserPatternType.REPEATER,
                 confidence = clamp(share),
@@ -190,21 +191,21 @@ class PatternRecognizer {
     }
 
     private fun detectMarathoners(s: BehaviorStats, out: MutableList<UserPattern>) {
-        val current = s.currentSongId?.let { s.minutesPerSong[it] } ?: 0
+        val current = s.currentSongId?.let { s.minutesPerSong[it] } ?: 0f
         val max = s.maxMinutesOnOneSong
         // Lowered from 10m to 5m — listening to one song for 5
         // minutes straight is already a marathon.
         when {
-            current >= 5 -> out += UserPattern(
+            current >= 5f -> out += UserPattern(
                 type = UserPatternType.MARATHONER,
                 confidence = clamp(current / 20f),
-                evidence = "been on the current song for $current minutes",
+                evidence = "been on the current song for ${current.toInt()} minutes",
                 detectedAtMs = System.currentTimeMillis(),
             )
-            max >= 20 -> out += UserPattern(
+            max >= 20f -> out += UserPattern(
                 type = UserPatternType.MARATHONER,
                 confidence = 0.5f,
-                evidence = "longest single-song session this week: ${max}m",
+                evidence = "longest single-song session this week: ${max.toInt()}m",
                 detectedAtMs = System.currentTimeMillis(),
             )
         }
@@ -276,9 +277,10 @@ class PatternRecognizer {
 
     // ── helpers ─────────────────────────────────────────────────────
 
-    private fun <K> Map<K, Int>.updateAt(key: K, fn: (Int) -> Int): Map<K, Int> {
-        val current = this[key] ?: 0
-        return this + (key to fn(current))
+    private fun <K, V> Map<K, V>.updateAt(key: K, fn: (V) -> V, default: V): Map<K, V> {
+        val out = LinkedHashMap(this)
+        out[key] = fn(out[key] ?: default)
+        return out
     }
 
     private fun clamp(v: Float): Float = v.coerceIn(0f, 1f)

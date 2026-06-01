@@ -177,7 +177,7 @@ class LineGenerator {
     private fun dynamicValue(key: String, ctx: SlotContext): String = when (key) {
         "currentMinutesLabel" -> formatMinutes(ctx.currentMinutesListened)
         "totalMinutesLabel" -> formatMinutes(ctx.totalMinutesListened)
-        "quietMinutesLabel" -> formatMinutes(ctx.sessionMinutes)
+        "quietMinutesLabel" -> formatMinutes(ctx.sessionMinutes.toFloat())
         "topSharePercent" -> "${(ctx.topMinutesShare * 100).toInt()}%"
         "nightOwlHourLabel" -> formatHour(ctx.hourOfDay)
         "currentHourLabel" -> formatHour(ctx.hourOfDay)
@@ -212,12 +212,14 @@ class LineGenerator {
 
     // ── Time / duration formatters ─────────────────────────────────
 
-    private fun formatMinutes(m: Int): String = when {
-        m <= 0 -> "0m"
-        m < 60 -> "${m}m"
+    private fun formatMinutes(m: Float): String = when {
+        m <= 0f -> "0m"
+        m < 1f -> "${(m * 60).toInt()}s"
+        m < 60f -> "${m.toInt()}m"
         else -> {
-            val h = m / 60
-            val rem = m % 60
+            val total = m.toInt()
+            val h = total / 60
+            val rem = total % 60
             if (rem == 0) "${h}h" else "${h}h ${rem}m"
         }
     }

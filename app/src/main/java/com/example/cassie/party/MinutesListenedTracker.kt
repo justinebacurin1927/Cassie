@@ -54,9 +54,6 @@ class MinutesListenedTracker {
                         songId = songId,
                     )
                 )
-                // Re-arm only if we're still on the same song. If the
-                // song has changed in the meantime, the next onSongStarted
-                // will have cancelled us anyway.
                 if (currentSongId == songId) scheduleNextTick()
             }
         }
@@ -70,6 +67,10 @@ class MinutesListenedTracker {
     }
 
     companion object {
-        const val TICK_INTERVAL_MS = 60_000L // 1 minute
+        // 1 second — we accumulate fractional minutes in the
+        // recognizer (1/60 per tick). Previously 60_000L meant a
+        // 30-second skip registered 0 minutes. Now a 30s skip
+        // registers 0.5m.
+        const val TICK_INTERVAL_MS = 1_000L
     }
 }
