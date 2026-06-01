@@ -223,22 +223,377 @@ fun HomeScreen(
 
 data class VibeStats(val totalPlays: Int, val uniqueSongs: Int, val topArtist: String, val totalMinutes: Int = 0)
 
-// ── Loading ───────────────────────────────────────────────────────
+// ── Loading Skeleton ──────────────────────────────────────────────
+// Mirrors the structure of ContentDashboard exactly. Every section
+// of the real home screen has a corresponding grey box here with
+// the same height/width, so when real data loads the layout doesn't
+// shift. Hit-and-miss random boxes are the wrong pattern.
 @Composable
 private fun LoadingDashboard() {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        items(8) {
+    val infinite = rememberInfiniteTransition(label = "homeSkeletonPulse")
+    val pulse by infinite.animateFloat(
+        initialValue = 0.18f, targetValue = 0.42f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "pulse",
+    )
+    val skelColor = CardGrey.copy(alpha = pulse)
+
+    Column(Modifier.fillMaxSize().background(PureBlack)) {
+
+        // ── Header (matches real header) ──
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(PureBlack)
+                .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column {
+                    // clock (28sp height matches the real 28sp text)
+                    Box(
+                        Modifier
+                            .width(120.dp)
+                            .height(34.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(skelColor)
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    // "N songs in library" subtitle
+                    Box(
+                        Modifier
+                            .width(140.dp)
+                            .height(14.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(skelColor)
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // 3 icon buttons (matches the real row of icons)
+                    repeat(3) {
+                        Box(
+                            Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(skelColor)
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            // Search bar (matches the real SearchBar height)
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(60.dp)
+                    .height(44.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(CardGrey)
+                    .background(skelColor)
             )
+        }
+
+        // ── Scrollable content (mirrors real sections) ──
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            contentPadding = PaddingValues(bottom = 4.dp),
+        ) {
+
+            // ── Skipper card ──
+            item {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(CardGrey)
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            // live dot + label row
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(skelColor)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Box(
+                                    Modifier
+                                        .width(110.dp)
+                                        .height(10.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(skelColor)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Box(
+                                    Modifier
+                                        .width(60.dp)
+                                        .height(10.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(skelColor)
+                                )
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            // line text (2 placeholder rows to mimic wrapping)
+                            Box(
+                                Modifier
+                                    .fillMaxWidth(0.95f)
+                                    .height(14.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(skelColor)
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Box(
+                                Modifier
+                                    .fillMaxWidth(0.65f)
+                                    .height(14.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(skelColor)
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        // penguin placeholder (matches real 100dp box)
+                        Box(
+                            Modifier
+                                .size(100.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(skelColor)
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+            }
+
+            // ── Top Charts section ──
+            item {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .width(110.dp)
+                                .height(18.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(skelColor)
+                        )
+                        Box(
+                            Modifier
+                                .width(50.dp)
+                                .height(14.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(skelColor)
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    // 3 top-chart rows (each row is ~60dp tall in the real layout)
+                    repeat(3) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(60.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(CardGrey)
+                                .padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(20.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(skelColor)
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth(0.7f)
+                                        .height(13.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(skelColor)
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth(0.4f)
+                                        .height(11.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(skelColor)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
+
+            // ── Playlists section ──
+            item {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .width(80.dp)
+                                .height(18.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(skelColor)
+                        )
+                        Box(
+                            Modifier
+                                .width(50.dp)
+                                .height(14.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(skelColor)
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        // 4 playlist squares (matches the real horizontal row)
+                        repeat(4) {
+                            Column {
+                                Box(
+                                    Modifier
+                                        .size(110.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(skelColor)
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                Box(
+                                    Modifier
+                                        .width(80.dp)
+                                        .height(11.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(skelColor)
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Box(
+                                    Modifier
+                                        .width(50.dp)
+                                        .height(10.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(skelColor)
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                }
+            }
+
+            // ── Separator (matches real layout) ──
+            item {
+                Box(
+                    Modifier
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(CardGrey)
+                )
+            }
+
+            // ── Your Library header + sort bar ──
+            item {
+                Column(Modifier.padding(horizontal = 16.dp)) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier
+                                .size(20.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(skelColor)
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Box(
+                            Modifier
+                                .width(110.dp)
+                                .height(16.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(skelColor)
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Box(
+                            Modifier
+                                .width(60.dp)
+                                .height(12.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(skelColor)
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    // sort bar (4 small pills)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        repeat(4) {
+                            Box(
+                                Modifier
+                                    .width(58.dp)
+                                    .height(28.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(CardGrey)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
+
+            // ── 6 song cards (matches the real list start) ──
+            items(6) {
+                Box(
+                    Modifier
+                        .padding(horizontal = 16.dp, vertical = 3.dp)
+                        .fillMaxWidth()
+                        .height(60.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(CardGrey)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // album-art square
+                        Box(
+                            Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(skelColor)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth(0.7f)
+                                    .height(13.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(skelColor)
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Box(
+                                Modifier
+                                    .fillMaxWidth(0.45f)
+                                    .height(11.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(skelColor)
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

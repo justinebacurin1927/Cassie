@@ -18,6 +18,7 @@ data class SlotContext(
     val currentMinutesListened: Int = 0,
 
     // ── Lifetime / aggregate (behavior only) ──
+    val totalSongsStarted: Int = 0,
     val totalMinutesListened: Int = 0,
     val totalSongsSkipped: Int = 0,
     val totalSongsCompleted: Int = 0,

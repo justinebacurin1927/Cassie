@@ -136,8 +136,11 @@ class PatternRecognizer {
     // ── Per-pattern detectors ──────────────────────────────────────
 
     private fun detectSkippers(s: BehaviorStats, out: MutableList<UserPattern>) {
-        if (s.recentSkips.size < 10) return // not enough data yet
-        if (s.recentSkipRate >= 0.70f) {
+        // Thresholds lowered so SKIPPER pattern fires fast — after
+        // ~3+ skips in the last 5 starts, not 70% of 20.
+        if (s.recentSkips.size < 5) return
+        val recentSkipped = s.recentSkips.count { it }
+        if (s.recentSkipRate >= 0.6f || recentSkipped >= 3) {
             val pct = (s.recentSkipRate * 100).toInt()
             out += UserPattern(
                 type = UserPatternType.SKIPPER,
@@ -151,16 +154,19 @@ class PatternRecognizer {
     private fun detectLoopers(s: BehaviorStats, out: MutableList<UserPattern>) {
         val currentLoops = s.currentSongLoopCount
         val totalLoops = s.totalSongLoops
+        // 2+ loops on the current song is enough to fire — down
+        // from 3. The pattern is what makes Skipper say "ok stalker"
+        // so the user wants to see it early.
         when {
-            currentLoops >= 3 -> out += UserPattern(
+            currentLoops >= 2 -> out += UserPattern(
                 type = UserPatternType.LOOPER,
                 confidence = clamp(currentLoops / 5f),
                 evidence = "looped the current song $currentLoops times",
                 detectedAtMs = System.currentTimeMillis(),
             )
-            totalLoops >= 8 -> out += UserPattern(
+            totalLoops >= 4 -> out += UserPattern(
                 type = UserPatternType.LOOPER,
-                confidence = 0.5f,
+                confidence = 0.4f,
                 evidence = "$totalLoops repeat-loops across recent listening",
                 detectedAtMs = System.currentTimeMillis(),
             )
@@ -173,7 +179,7 @@ class PatternRecognizer {
         val topMinutes = s.minutesPerSong[topId] ?: 0
         val totalMinutes = s.totalMinutesListened.coerceAtLeast(1)
         val share = topMinutes.toFloat() / totalMinutes
-        if (topMinutes >= 10 && share >= 0.35f) {
+        if (topMinutes >= 5 && share >= 0.3f) {
             out += UserPattern(
                 type = UserPatternType.REPEATER,
                 confidence = clamp(share),
@@ -186,14 +192,16 @@ class PatternRecognizer {
     private fun detectMarathoners(s: BehaviorStats, out: MutableList<UserPattern>) {
         val current = s.currentSongId?.let { s.minutesPerSong[it] } ?: 0
         val max = s.maxMinutesOnOneSong
+        // Lowered from 10m to 5m — listening to one song for 5
+        // minutes straight is already a marathon.
         when {
-            current >= 10 -> out += UserPattern(
+            current >= 5 -> out += UserPattern(
                 type = UserPatternType.MARATHONER,
                 confidence = clamp(current / 20f),
                 evidence = "been on the current song for $current minutes",
                 detectedAtMs = System.currentTimeMillis(),
             )
-            max >= 30 -> out += UserPattern(
+            max >= 20 -> out += UserPattern(
                 type = UserPatternType.MARATHONER,
                 confidence = 0.5f,
                 evidence = "longest single-song session this week: ${max}m",
@@ -203,10 +211,12 @@ class PatternRecognizer {
     }
 
     private fun detectPartiers(s: BehaviorStats, out: MutableList<UserPattern>) {
-        if (s.totalPartyModeToggles >= 3) {
+        // Lowered from 3 toggles to 1 — the user JUST turned it on,
+        // we should react.
+        if (s.totalPartyModeToggles >= 1) {
             out += UserPattern(
                 type = UserPatternType.PARTIER,
-                confidence = clamp(s.totalPartyModeToggles / 6f),
+                confidence = clamp(s.totalPartyModeToggles / 4f),
                 evidence = "toggled party mode ${s.totalPartyModeToggles} times",
                 detectedAtMs = System.currentTimeMillis(),
             )
@@ -215,7 +225,9 @@ class PatternRecognizer {
 
     private fun detectExplorers(s: BehaviorStats, out: MutableList<UserPattern>) {
         val unique = s.uniqueSongsListenedTo
-        if (unique >= 15 && s.recentSkipRate < 0.4f) {
+        // Lowered from 15 to 8 unique songs, and skip rate from
+        // 0.4 to 0.5 — easier to fire.
+        if (unique >= 8 && s.recentSkipRate < 0.5f) {
             out += UserPattern(
                 type = UserPatternType.EXPLORER,
                 confidence = clamp(unique / 30f),
@@ -226,8 +238,9 @@ class PatternRecognizer {
     }
 
     private fun detectNightOwls(s: BehaviorStats, out: MutableList<UserPattern>) {
-        if (s.totalAppForegrounds < 5) return
-        if (s.nightOwlRate >= 0.4f) {
+        // Lowered the required opens from 5 to 2.
+        if (s.totalAppForegrounds < 2) return
+        if (s.nightOwlRate >= 0.3f) {
             out += UserPattern(
                 type = UserPatternType.NIGHT_OWL,
                 confidence = clamp(s.nightOwlRate),
@@ -238,10 +251,11 @@ class PatternRecognizer {
     }
 
     private fun detectFavoriteHoarders(s: BehaviorStats, out: MutableList<UserPattern>) {
-        if (s.totalFavoriteToggles >= 30) {
+        // Lowered from 30 to 10 toggles.
+        if (s.totalFavoriteToggles >= 10) {
             out += UserPattern(
                 type = UserPatternType.FAVORITE_HOARDER,
-                confidence = clamp(s.totalFavoriteToggles / 60f),
+                confidence = clamp(s.totalFavoriteToggles / 30f),
                 evidence = "favorited/unfavorited ${s.totalFavoriteToggles} songs",
                 detectedAtMs = System.currentTimeMillis(),
             )
@@ -249,10 +263,11 @@ class PatternRecognizer {
     }
 
     private fun detectLyricsLovers(s: BehaviorStats, out: MutableList<UserPattern>) {
-        if (s.totalLyricsOpens >= 5) {
+        // Lowered from 5 to 2 opens.
+        if (s.totalLyricsOpens >= 2) {
             out += UserPattern(
                 type = UserPatternType.LYRICS_LOVER,
-                confidence = clamp(s.totalLyricsOpens / 15f),
+                confidence = clamp(s.totalLyricsOpens / 10f),
                 evidence = "opened lyrics ${s.totalLyricsOpens} times",
                 detectedAtMs = System.currentTimeMillis(),
             )

@@ -1,6 +1,7 @@
 package com.example.cassie.ui.party
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -67,6 +68,14 @@ fun SkipperCard(
 ) {
     val line by SkipperEngine.currentLine.collectAsState()
     val patterns by SkipperEngine.currentPatterns.collectAsState()
+
+    // While the engine hasn't produced a first line yet, show a
+    // skeleton that mirrors the real card's layout exactly. Empty
+    // placeholders, same dimensions, same positions — no guessing.
+    if (line == null) {
+        SkipperCardSkeleton(modifier)
+        return
+    }
 
     // Live pulse animation for the "live" dot
     val infinite = rememberInfiniteTransition(label = "live_pulse")
@@ -160,6 +169,100 @@ fun SkipperCard(
                     contentScale = ContentScale.Crop,
                 )
             }
+        }
+    }
+}
+
+// ── Skeleton (loading state) ──────────────────────────────────────
+// Mirrors the real SkipperCard layout exactly. Same CardGrey
+// background, same Row+Column structure, same 100dp penguin box,
+// same label/tag/line area — just empty grey placeholders that
+// pulse. When the first line arrives from the engine, the skeleton
+// swaps to the real card with no layout shift.
+@Composable
+private fun SkipperCardSkeleton(modifier: Modifier = Modifier) {
+    val infinite = rememberInfiniteTransition(label = "skipperSkeletonPulse")
+    val pulse by infinite.animateFloat(
+        initialValue = 0.2f,
+        targetValue = 0.5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "pulse",
+    )
+    val skelColor = TextPrimary.copy(alpha = pulse)
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(CardGrey),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            // ── Text area — same structure as the real card ──
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                // Top row: live dot + label + pattern tag
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(LivePink.copy(alpha = pulse)),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    // "SKIPPER · noticing" placeholder
+                    Box(
+                        Modifier
+                            .width(120.dp)
+                            .height(10.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(skelColor),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    // pattern tag placeholder
+                    Box(
+                        Modifier
+                            .width(56.dp)
+                            .height(10.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(skelColor),
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                // The line — two rows to mimic text wrapping
+                Box(
+                    Modifier
+                        .fillMaxWidth(0.95f)
+                        .height(14.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(skelColor),
+                )
+                Spacer(Modifier.height(6.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth(0.6f)
+                        .height(14.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(skelColor),
+                )
+            }
+
+            // ── Penguin placeholder (same 100dp box as the real one) ──
+            Box(
+                modifier = Modifier
+                    .size(100.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(skelColor),
+            )
         }
     }
 }

@@ -10,7 +10,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
@@ -94,19 +93,6 @@ object SkipperEngine {
                     handleEvent(event)
                 }
             }
-
-            // Live auto-rotation: pick a fresh line every few
-            // seconds, regardless of user input. This is what makes
-            // the card feel "alive" — even when nothing's happening
-            // Skipper is still finding new things to notice.
-            scope.launch {
-                while (true) {
-                    delay(AUTO_ROTATE_MS)
-                    if (initialized) {
-                        regenerateLine(force = false, reason = "auto_tick")
-                    }
-                }
-            }
         }
     }
 
@@ -173,15 +159,11 @@ object SkipperEngine {
         signatureChanged: Boolean,
         now: Long,
     ): Boolean {
-        // Cool down is the strongest gate — no more than one new
-        // line every few seconds even during a skip spree.
-        if (now - lastLineAt < LINE_COOLDOWN_MS) return false
+        // Every SongStarted should produce a new line — that's the
+        // primary signal the user wants. No cooldown block here.
+        if (event is UserEvent.SongStarted) return true
         // Pattern signature changes always justify a new line.
         if (signatureChanged) return true
-        // First song of a session is worth commenting on.
-        if (event is UserEvent.SongStarted &&
-            stats.totalSongsStarted in 1..3
-        ) return true
         // Looping is newsworthy.
         if (event is UserEvent.SongLooped) return true
         // Party mode toggled is newsworthy.
@@ -202,17 +184,21 @@ object SkipperEngine {
 
     private fun regenerateLine(force: Boolean, reason: String) {
         val ctx = buildSlotContext()
-        // If we're forcing a refresh, we want a different line than
-        // the last one. The LineGenerator's anti-repetition layer
-        // handles the hard-dup case; for force, we just ask again and
-        // trust the randomness + anti-rep.
-        val line = lineGenerator.generate(
-            ctx = ctx,
-            triggerTags = listOf(reason),
-        )
-        if (!force && line.text == _currentLine.value?.text) {
-            // No change — don't bump the cooldown or the displayed
-            // timestamp; this was a "nothing interesting changed" event.
+        // Try up to 3 times to produce a line that's different from
+        // the current one. This guarantees a real visual update on
+        // each song start even when the rules database cycles back
+        // to a previously-picked template.
+        val currentText = _currentLine.value?.text
+        var attempt = 0
+        var line: SkipperLine
+        do {
+            line = lineGenerator.generate(ctx, triggerTags = listOf(reason))
+            attempt++
+        } while (attempt < 3 && !force && line.text == currentText)
+
+        if (!force && line.text == currentText) {
+            // Gave up after 3 attempts — keep current line rather
+            // than update to a duplicate.
             return
         }
         _currentLine.value = line
@@ -231,6 +217,7 @@ object SkipperEngine {
                 stats.minutesPerSong[it] ?: 0
             } ?: 0,
             totalMinutesListened = stats.totalMinutesListened,
+            totalSongsStarted = stats.totalSongsStarted,
             totalSongsSkipped = stats.totalSongsSkipped,
             totalSongsCompleted = stats.totalSongsCompleted,
             totalFavorites = stats.totalFavoriteToggles,
@@ -268,11 +255,4 @@ object SkipperEngine {
     }
 
     private const val LINE_COOLDOWN_MS = 3_000L
-
-    /**
-     * How often the auto-rotation ticker tries to swap to a new
-     * line, in milliseconds. 6s gives the user enough time to read
-     * a line before it changes, but keeps the card feeling alive.
-     */
-    private const val AUTO_ROTATE_MS = 6_000L
 }

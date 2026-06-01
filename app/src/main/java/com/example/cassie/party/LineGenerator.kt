@@ -176,9 +176,12 @@ class LineGenerator {
      */
     private fun dynamicValue(key: String, ctx: SlotContext): String = when (key) {
         "currentMinutesLabel" -> formatMinutes(ctx.currentMinutesListened)
+        "totalMinutesLabel" -> formatMinutes(ctx.totalMinutesListened)
         "quietMinutesLabel" -> formatMinutes(ctx.sessionMinutes)
         "topSharePercent" -> "${(ctx.topMinutesShare * 100).toInt()}%"
         "nightOwlHourLabel" -> formatHour(ctx.hourOfDay)
+        "currentHourLabel" -> formatHour(ctx.hourOfDay)
+        "sessionSongNumber" -> "#${ctx.totalSongsStarted}"
         "recentSkipCount" -> ctx.recentSkips.count { it }.toString()
         "totalSongsSkipped" -> ctx.totalSongsSkipped.toString()
         else -> "?"
