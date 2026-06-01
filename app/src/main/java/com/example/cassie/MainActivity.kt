@@ -123,7 +123,25 @@ private fun CassieApp() {
     val favoritesStore = remember { FavoritesStore(persistenceManager) }
     val equalizerManager = remember { EqualizerManager() }
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
+    // Proper back stack: pressing back pops one entry. Tab switches
+    // (bottom nav) reset the stack to a single screen.
+    var backStack by remember { mutableStateOf(listOf<Screen>(Screen.Home)) }
     var homeViewModel by remember { mutableStateOf<com.example.cassie.ui.home.HomeViewModel?>(null) }
+
+    fun navigateTo(screen: Screen) {
+        backStack = backStack + screen
+        currentScreen = screen
+    }
+    fun navigateBack() {
+        if (backStack.size > 1) {
+            backStack = backStack.dropLast(1)
+            currentScreen = backStack.last()
+        }
+    }
+    fun resetTo(screen: Screen) {
+        backStack = listOf(screen)
+        currentScreen = screen
+    }
 
     // ── permission state ──────────────────────────────────────────
     val requiredPermission = if (Build.VERSION.SDK_INT >= 33)
@@ -175,8 +193,8 @@ private fun CassieApp() {
     }
 
     // ── system back button ─────────────────────────────────────────
-    BackHandler(currentScreen != Screen.Home) {
-        currentScreen = Screen.Home
+    BackHandler(backStack.size > 1) {
+        navigateBack()
     }
 
     val songs = homeViewModel?.uiState?.collectAsState()?.value?.songs ?: emptyList()
@@ -225,9 +243,9 @@ private fun CassieApp() {
                             onNavigateToPlayer = { currentScreen = Screen.NowPlaying },
                             onNavigateToAlbums = { currentScreen = Screen.Albums },
                             onNavigateToArtists = { currentScreen = Screen.Artists },
-                            onNavigateToPlaylists = { currentScreen = Screen.Playlists },
-                            onPlaylistClick = { playlist -> currentScreen = Screen.PlaylistDetail(playlist) },
-                            onNavigateToTop50 = { currentScreen = Screen.Top50 },
+                            onNavigateToPlaylists = { navigateTo(Screen.Playlists) },
+                            onPlaylistClick = { playlist -> navigateTo(Screen.PlaylistDetail(playlist)) },
+                            onNavigateToTop50 = { navigateTo(Screen.Top50) },
                         )
                     }
                     Screen.NowPlaying -> {
@@ -244,7 +262,7 @@ private fun CassieApp() {
                             playlistStore = playlistStore,
                             favoritesStore = favoritesStore,
                             onSongClick = { currentScreen = Screen.NowPlaying },
-                            onBack = { currentScreen = Screen.Home },
+                            onBack = { navigateBack() },
                         )
                     }
                     Screen.Albums -> {
@@ -254,8 +272,8 @@ private fun CassieApp() {
                             playlistStore = playlistStore,
                             favoritesStore = favoritesStore,
                             onSongClick = { currentScreen = Screen.NowPlaying },
-                            onAlbumClick = { albumName -> currentScreen = Screen.AlbumDetail(albumName) },
-                            onBack = { currentScreen = Screen.Home },
+                            onAlbumClick = { albumName -> navigateTo(Screen.AlbumDetail(albumName)) },
+                            onBack = { navigateBack() },
                         )
                     }
                     is Screen.AlbumDetail -> {
@@ -266,7 +284,7 @@ private fun CassieApp() {
                             playlistStore = playlistStore,
                             favoritesStore = favoritesStore,
                             onSongClick = { currentScreen = Screen.NowPlaying },
-                            onBack = { currentScreen = Screen.Home },
+                            onBack = { navigateBack() },
                         )
                     }
                     Screen.Playlists -> {
@@ -276,8 +294,8 @@ private fun CassieApp() {
                             favoritesStore = favoritesStore,
                             playbackManager = playbackManager,
                             onSongClick = { currentScreen = Screen.NowPlaying },
-                            onPlaylistClick = { playlist -> currentScreen = Screen.PlaylistDetail(playlist) },
-                            onBack = { currentScreen = Screen.Home },
+                            onPlaylistClick = { playlist -> navigateTo(Screen.PlaylistDetail(playlist)) },
+                            onBack = { navigateBack() },
                         )
                     }
                     is Screen.PlaylistDetail -> {
@@ -289,7 +307,7 @@ private fun CassieApp() {
                             playlistStore = playlistStore,
                             favoritesStore = favoritesStore,
                             onSongClick = { currentScreen = Screen.NowPlaying },
-                            onBack = { currentScreen = Screen.Home },
+                            onBack = { navigateBack() },
                         )
                     }
                     Screen.Top50 -> {
@@ -298,7 +316,7 @@ private fun CassieApp() {
                             playbackManager = playbackManager,
                             favoritesStore = favoritesStore,
                             onSongClick = { currentScreen = Screen.NowPlaying },
-                            onBack = { currentScreen = Screen.Home },
+                            onBack = { navigateBack() },
                         )
                     }
                 }
@@ -348,7 +366,7 @@ private fun CassieApp() {
                             "top50" -> Screen.Top50
                             else -> Screen.Home
                         }
-                        currentScreen = tabScreen
+                        resetTo(tabScreen)
                     },
 
                 )
