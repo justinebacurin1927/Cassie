@@ -86,4 +86,19 @@ class PersistenceManager(context: Context) {
     fun putString(key: String, value: String) {
         prefs.edit().putString(key, value).apply()
     }
+
+    /**
+     * Synchronous variant of [putString] that BLOCKS the caller until
+     * the write has been committed to disk. Use this for data that
+     * must survive a force-kill (e.g. the per-minute Top 50 tracker,
+     * which the user flagged as "critical" and "loses data when the
+     * app is closed"). Async [putString] uses `apply()` which writes
+     * to memory immediately but flushes to disk in the background —
+     * if the OS kills the process before the flush, the write is
+     * lost. [putStringCommit] uses `commit()` so the write is
+     * guaranteed durable before this call returns.
+     */
+    fun putStringCommit(key: String, value: String) {
+        prefs.edit().putString(key, value).commit()
+    }
 }

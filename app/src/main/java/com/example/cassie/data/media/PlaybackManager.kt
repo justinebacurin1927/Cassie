@@ -161,6 +161,14 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
      * Persist the current [listenedTimeSecBySong] map to SharedPreferences
      * so the per-minute Top 50 survives app restarts. Storage key
      * `listened_time_v1` in the `cassie_data` prefs file.
+     *
+     * Uses COMMIT (synchronous disk write), not apply(). The user
+     * reported the data "loses when the app is closed" — the previous
+     * apply() call wrote to memory immediately but flushed to disk
+     * in the background, so a force-kill (swipe from recents, OOM)
+     * could lose the most recent ticks. commit() blocks until the
+     * write is durable. Per-tick cost is < 10ms, acceptable for a
+     * 1Hz loop.
      */
     private fun saveTimeTracker() {
         val pm = persistenceManager ?: return
@@ -168,7 +176,7 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
         for ((id, sec) in listenedTimeSecBySong) {
             obj.put(id.toString(), sec)
         }
-        pm.putString("listened_time_v1", obj.toString())
+        pm.putStringCommit("listened_time_v1", obj.toString())
     }
 
     /**
@@ -764,6 +772,15 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
     override fun onCleared() {
         super.onCleared()
         cancelSleepTimer()
+        // LAST CHANCE: persist the per-minute Top 50 data
+        // synchronously. The 1Hz coroutine loop has already been
+        // cancelled (viewModelScope is cancelled before onCleared),
+        // and the player's onPlaybackStateChanged(STATE_IDLE) may or
+        // may not have fired before this point depending on
+        // Android's lifecycle ordering. Flushing here is the
+        // belt-and-suspenders guarantee that no listening time is
+        // lost when the activity finishes for good.
+        saveTimeTracker()
         controller?.release()
         controller = null
         // Note: service is NOT stopped here — it continues playing in background.

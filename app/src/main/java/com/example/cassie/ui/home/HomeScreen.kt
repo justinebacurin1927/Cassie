@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -1158,6 +1159,45 @@ private fun Top50ByMinutesRow(rank: Int, song: Song, onClick: () -> Unit) {
     }
 }
 
+@Composable
+@Preview(
+    name = "Top 50 row",
+    showBackground = true,
+    backgroundColor = 0xFF000000,
+    widthDp = 360,
+)
+private fun Top50RowPreview() {
+    Column {
+        Top50ByMinutesRow(
+            rank = 1,
+            song = Song(
+                id = 1, title = "Leaves", artist = "Ben&Ben",
+                album = "Ben&Ben", albumId = 10, duration = 245000,
+                mimeType = "audio/mpeg", albumArtUri = null,
+            ),
+            onClick = {},
+        )
+        Top50ByMinutesRow(
+            rank = 2,
+            song = Song(
+                id = 2, title = "Maybe the Night", artist = "Ben&Ben",
+                album = "Ben&Ben", albumId = 11, duration = 220000,
+                mimeType = "audio/mpeg", albumArtUri = null,
+            ),
+            onClick = {},
+        )
+        Top50ByMinutesRow(
+            rank = 5,
+            song = Song(
+                id = 5, title = "Ride Home", artist = "Ben&Ben",
+                album = "Ben&Ben", albumId = 12, duration = 198000,
+                mimeType = "audio/mpeg", albumArtUri = null,
+            ),
+            onClick = {},
+        )
+    }
+}
+
 // ── Playlist Preview Card (horizontal home row) ──────────────────
 @Composable
 private fun PlaylistPreviewCard(
@@ -1353,11 +1393,18 @@ private fun SortBar(selected: SortOption, onSelect: (SortOption) -> Unit) {
 // Full purple-to-glowing-white gradient fill (was just a thin top
 // accent line). The base is deep purple, the top half glows lighter
 // and pinker, the bottom edge has a soft white glow that pulses.
-private val VibePurpleDeep   = Color(0xFF1A0033)
-private val VibePurpleMid    = Color(0xFF3A0F66)
-private val VibePurpleGlow   = Color(0xFF6B2BC9)
-private val VibePinkGlow     = Color(0xFFB86BFF)
-private val VibeWhiteGlow    = Color(0xFFEAD7FF)
+// ── VibeCard palette ────────────────────────────────────────────
+// The previous colors (#1A0033, #3A0F66, #6B2BC9) registered as
+// "almost black" against the PureBlack background — dark purples
+// blend with black at low brightness. Brightened to be clearly
+// purple. The base gradient is now visibly purple from corner to
+// corner, with the glow layers adding the soft white/pink wash on
+// top.
+private val VibePurpleDeep   = Color(0xFF3B0F7A) // was #1A0033 — main base
+private val VibePurpleMid    = Color(0xFF7B2DC9) // was #3A0F66 — top accent
+private val VibePurpleGlow   = Color(0xFFB86BFF) // was #6B2BC9 — top inner glow
+private val VibePinkGlow     = Color(0xFFE0B0FF) // was #B86BFF — bottom pink
+private val VibeWhiteGlow    = Color(0xFFF5EBFF) // was #EAD7FF — bright white wash
 
 @Composable
 private fun VibeCard(stats: VibeStats) {
@@ -1375,35 +1422,25 @@ private fun VibeCard(stats: VibeStats) {
             .padding(horizontal = 16.dp)
             .clip(RoundedCornerShape(16.dp))
     ) {
-        // ── Layer 1: base deep-purple to mid-purple vertical gradient ──
+        // ── Layer 1: bright purple diagonal gradient — the WHOLE card
+        //    is visibly purple, not just a faint accent. The gradient
+        //    sweeps from a brighter mid-purple at top-left to a deeper
+        //    purple at bottom-right so the eye reads motion/depth. ──
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    Brush.verticalGradient(
-                        colors = listOf(VibePurpleMid, VibePurpleDeep, VibePurpleDeep),
+                    Brush.linearGradient(
+                        colors = listOf(VibePurpleMid, VibePurpleDeep),
+                        start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                        end   = androidx.compose.ui.geometry.Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY),
                     )
                 )
         )
-        // ── Layer 2: top half glow (purple → transparent) — gives the
-        //    card an "inner light" feel, like the top is being lit. ──
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            VibePurpleGlow.copy(alpha = 0.55f),
-                            VibePurpleGlow.copy(alpha = 0.15f),
-                            Color.Transparent,
-                        ),
-                        startY = 0f,
-                        endY = Float.POSITIVE_INFINITY,
-                    )
-                )
-        )
-        // ── Layer 3: bottom pink-to-white glow (pulses). This is the
-        //    "glowing white" the user asked for — not a line, a fill. ──
+        // ── Layer 2: bottom white-glow wash (pulses). The user wanted
+        //    "purple + gradient" with a glowing-white finish — this is
+        //    the "glowing" part. Opacity tuned so it sits ON TOP of the
+        //    purple base, not in place of it. ──
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1411,43 +1448,47 @@ private fun VibeCard(stats: VibeStats) {
                     Brush.verticalGradient(
                         colors = listOf(
                             Color.Transparent,
-                            VibePinkGlow.copy(alpha = 0.10f * glowPulse),
-                            VibeWhiteGlow.copy(alpha = 0.22f * glowPulse),
-                            VibeWhiteGlow.copy(alpha = 0.32f * glowPulse),
+                            Color.Transparent,
+                            VibePinkGlow.copy(alpha = 0.25f * glowPulse),
+                            VibeWhiteGlow.copy(alpha = 0.45f * glowPulse),
+                            VibeWhiteGlow.copy(alpha = 0.55f * glowPulse),
                         ),
                         startY = 0f,
                         endY = Float.POSITIVE_INFINITY,
                     )
                 )
         )
-        // ── Layer 4: top-left radial highlight (a single bright spot,
-        //    like a sun reflecting off the surface) ──
+        // ── Layer 3: top-left radial highlight (the "lit from above"
+        //    accent — a single bright spot that makes the card feel
+        //    three-dimensional). ──
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.radialGradient(
                         colors = listOf(
-                            VibePinkGlow.copy(alpha = 0.30f * glowPulse),
+                            VibeWhiteGlow.copy(alpha = 0.35f * glowPulse),
+                            VibePinkGlow.copy(alpha = 0.15f * glowPulse),
                             Color.Transparent,
                         ),
-                        center = androidx.compose.ui.geometry.Offset(80f, 40f),
-                        radius = 280f,
+                        center = androidx.compose.ui.geometry.Offset(60f, 30f),
+                        radius = 260f,
                     )
                 )
         )
-        // ── Subtle 1px border to define the edge against PureBlack ──
+        // ── Layer 4: 1.5dp bright-purple border so the card edge
+        //    reads cleanly against PureBlack. ──
         Box(
             Modifier
                 .fillMaxSize()
-                .border(1.dp, VibePurpleGlow.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                .border(1.5.dp, VibePurpleGlow.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
         )
         // ── Content ──
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Default.Insights, null,
-                    tint = VibeWhiteGlow.copy(alpha = 0.9f),
+                    tint = VibeWhiteGlow,
                     modifier = Modifier.size(20.dp),
                 )
                 Spacer(Modifier.width(8.dp))
@@ -1466,6 +1507,45 @@ private fun VibeCard(stats: VibeStats) {
             }
         }
     }
+}
+
+/**
+ * Preview of the VibeCard. Visible in Android Studio's Compose
+ * Preview pane — set up a wrapper that supplies the same dark
+ * background the card sits on, so the gradient reads correctly.
+ */
+@Composable
+@Preview(
+    name = "VibeCard — populated",
+    showBackground = true,
+    backgroundColor = 0xFF000000,
+    widthDp = 380,
+)
+private fun VibeCardPreview() {
+    VibeCard(
+        stats = VibeStats(
+            totalPlays = 47,
+            uniqueSongs = 23,
+            topArtist = "Ben&Ben",
+        ),
+    )
+}
+
+@Composable
+@Preview(
+    name = "VibeCard — empty artist",
+    showBackground = true,
+    backgroundColor = 0xFF000000,
+    widthDp = 380,
+)
+private fun VibeCardPreviewEmpty() {
+    VibeCard(
+        stats = VibeStats(
+            totalPlays = 3,
+            uniqueSongs = 2,
+            topArtist = "—",
+        ),
+    )
 }
 
 @Composable
@@ -1512,4 +1592,15 @@ private fun ShuffleAllButton(onClick: () -> Unit) {
             )
         }
     }
+}
+
+@Composable
+@Preview(
+    name = "Shuffle All button",
+    showBackground = true,
+    backgroundColor = 0xFF000000,
+    widthDp = 200,
+)
+private fun ShuffleAllButtonPreview() {
+    ShuffleAllButton(onClick = {})
 }
