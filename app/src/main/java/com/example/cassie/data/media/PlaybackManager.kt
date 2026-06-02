@@ -43,16 +43,16 @@ data class PlayerState(
     /**
      * Lifetime seconds of real playback per song. Updated by a 1Hz
      * coroutine loop while playing — the "for loop counting" the user
-     * asked for. UI uses this for Your Vibe stats (top artist by
-     * time, total minutes listened) and as a fallback if Skipper's
-     * event-based minutes tracker ever drifts.
+     * asked for. Kept in PlayerState even though the current UI uses
+     * play counts (ListeningCounter) for Vibe/Top 50 — the user wants
+     * this data still ticking in the background for future use.
      */
     val listenedTimeSecBySong: Map<Long, Long> = emptyMap(),
 )
 
 class PlaybackManager(app: Application) : AndroidViewModel(app) {
 
-    private val _playerState = MutableStateFlow(PlayerState())
+    private val _playerState = MutableStateFlow(PlayerState(listenedTimeSecBySong = loadTimeTracker()))
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
 
     val listeningCounter = ListeningCounter(PersistenceManager(getApplication()))
@@ -67,7 +67,7 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
     // song" — this is it. Bypasses the event-based minutes tracker
     // in SkipperEngine for the simple case (UI stats) and remains
     // accurate even if the event stream drops a tick.
-    private var listenedTimeSecBySong: Map<Long, Long> = emptyMap()
+    private var listenedTimeSecBySong: Map<Long, Long> = loadTimeTracker()
     private var tickingSongId: Long? = null
     private var tickingShouldRun: Boolean = false
 
@@ -89,6 +89,7 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
     /** Queue of actions that execute once the controller connects. */
     private val pendingActions = mutableListOf<((MediaController) -> Unit)>()
     private val pm = PersistenceManager(getApplication())
+    private val persistenceManager: PersistenceManager get() = pm
 
     /** Execute action immediately if controller is ready, otherwise queue it. */
     private fun withController(action: (MediaController) -> Unit) {
@@ -127,6 +128,13 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
         // song is the same as the last tick, add 1 second to its
         // lifetime listening time. Stops automatically when the
         // song changes or playback pauses.
+        //
+        // Persistence: save on EVERY tick (not throttled). SharedPreferences
+        // apply() is async and cheap, and the user reported the per-minute
+        // Top 50 was "resets when the app is closed" — that's unacceptable
+        // for a "critical" stat. Saving every second guarantees that at
+        // most 1 second of listening time is lost on a force-kill.
+        // Also flushes on pause for the same reason.
         viewModelScope.launch {
             while (isActive) {
                 delay(1_000L)
@@ -136,10 +144,49 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
                         val prev = listenedTimeSecBySong[songId] ?: 0L
                         listenedTimeSecBySong = listenedTimeSecBySong + (songId to (prev + 1L))
                         _playerState.update { it.copy(listenedTimeSecBySong = listenedTimeSecBySong) }
+                        // Persist on every tick — apply() is async so
+                        // this doesn't block the coroutine.
+                        saveTimeTracker()
                     }
+                } else if (listenedTimeSecBySong.isNotEmpty()) {
+                    // Ticker paused — flush to disk so a force-close
+                    // or OOM kill doesn't lose any in-flight time.
+                    saveTimeTracker()
                 }
             }
         }
+    }
+
+    /**
+     * Persist the current [listenedTimeSecBySong] map to SharedPreferences
+     * so the per-minute Top 50 survives app restarts. Storage key
+     * `listened_time_v1` in the `cassie_data` prefs file.
+     */
+    private fun saveTimeTracker() {
+        val pm = persistenceManager ?: return
+        val obj = org.json.JSONObject()
+        for ((id, sec) in listenedTimeSecBySong) {
+            obj.put(id.toString(), sec)
+        }
+        pm.putString("listened_time_v1", obj.toString())
+    }
+
+    /**
+     * Load [listenedTimeSecBySong] from SharedPreferences. Called from
+     * init so the per-minute Top 50 still has data after the user
+     * closes and reopens the app.
+     */
+    private fun loadTimeTracker(): Map<Long, Long> {
+        val raw = persistenceManager?.getString("listened_time_v1") ?: return emptyMap()
+        return try {
+            val obj = org.json.JSONObject(raw)
+            val map = mutableMapOf<Long, Long>()
+            obj.keys().forEach { key ->
+                val sec = obj.optLong(key, 0L)
+                if (sec > 0L) map[key.toLong()] = sec
+            }
+            map
+        } catch (_: Exception) { emptyMap() }
     }
 
     /** Persist current song so it survives app restarts */
@@ -390,6 +437,14 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
             // should also halt the tick.
             if (state == Player.STATE_IDLE || state == Player.STATE_ENDED) {
                 tickingShouldRun = false
+                // Flush any in-flight listening time to disk NOW.
+                // The 1Hz loop also flushes in its else-branch, but
+                // by the time the loop's next tick runs, the
+                // viewModelScope may already be cancelled (this
+                // callback can fire on service destruction). Saving
+                // here is the "last chance" to persist before the
+                // process dies.
+                saveTimeTracker()
             }
         }
 
@@ -475,6 +530,17 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
             val song = songs[startIndex]
             _playerState.update { it.copy(currentSong = song) }
             saveLastSong(song)
+            // Prime the 1Hz time tracker with the starting song.
+            // onMediaItemTransition doesn't always fire for the FIRST
+            // item in a freshly-set queue (it fires on TRANSITIONS,
+            // and the very first song is just "appearing", not
+            // "transitioning from another"). Without this prime,
+            // the first song in a queue would get 0 seconds even
+            // if the user listened to it for an hour — and a later
+            // song they only previewed for 10 seconds would leap
+            // past it in the Top 50 ranking. This bug is what the
+            // user flagged as "per minute top 50 isn't accurate".
+            tickingSongId = song.id
         }
         listeningCounter.recordPlay(songs.getOrNull(startIndex)?.id ?: -1)
     }
@@ -510,6 +576,9 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
         val firstSong = shuffled[0]
         _playerState.update { it.copy(currentSong = firstSong) }
         saveLastSong(firstSong)
+        // Prime the 1Hz time tracker (same fix as playQueue — see
+        // comment there for why this is needed).
+        tickingSongId = firstSong.id
         listeningCounter.recordPlay(firstSong.id)
         UserEventStream.emit(
             UserEvent.PartyModeToggled(

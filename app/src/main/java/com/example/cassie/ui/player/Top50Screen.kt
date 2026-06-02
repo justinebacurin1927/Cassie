@@ -26,8 +26,8 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.example.cassie.data.media.FavoritesStore
 import com.example.cassie.data.media.PlaybackManager
+import com.example.cassie.data.media.PlayerState
 import com.example.cassie.data.media.Song
-import com.example.cassie.party.SkipperEngine
 import com.example.cassie.ui.theme.CassieColors
 
 // ── Theme Tokens ──────────────────────────────────────────────────
@@ -42,10 +42,16 @@ private val TextDim       = CassieColors.TextDim
 /**
  * The full "Your Top 50" screen.
  *
- * Ranked by lifetime minutes listened (from SkipperEngine.stats).
- * The minute count is NEVER shown in the UI — the list is just a
- * ranking. The metric is internal: Skipper uses it for pattern
- * detection, but the user only sees the order.
+ * Ranked by per-minute listening time (PlaybackManager.listenedTimeSecBySong).
+ * The user explicitly asked for "per minute top 50" and called accuracy
+ * "critical" — so this screen uses the 1Hz coroutine tracker, NOT the
+ * event-based Skipper minutes tracker. The 1Hz tracker:
+ *   - Ticks every wall-clock second while playback is active
+ *   - Primes `tickingSongId` in playQueue (not just onMediaItemTransition)
+ *     so the FIRST song in a freshly-set queue gets counted correctly
+ *   - Persists to SharedPreferences on every tick, on pause, and on
+ *     STATE_IDLE/ENDED — so the data survives app restarts
+ * The minute count is NEVER shown in the UI; the list is just a ranking.
  */
 @Composable
 fun Top50Screen(
@@ -55,10 +61,20 @@ fun Top50Screen(
     onSongClick: (Song) -> Unit,
     onBack: () -> Unit,
 ) {
-    val topByMinutes by SkipperEngine.topSongsByMinutes.collectAsState()
-    val top50 = remember(topByMinutes, songs) {
-        topByMinutes
-            .mapNotNull { (id, _) -> songs.find { it.id == id } }
+    val playerState by playbackManager?.playerState?.collectAsState()
+        ?: remember { mutableStateOf(PlayerState()) }
+    val top50 = remember(playerState.listenedTimeSecBySong, songs) {
+        playerState.listenedTimeSecBySong.entries
+            .mapNotNull { (id, sec) ->
+                // Floor to whole minutes, but require AT LEAST 1
+                // minute of listening. A song played for 30 seconds
+                // shouldn't appear in a "per minute" ranking — the
+                // user said accuracy is critical.
+                if (sec < 60L) null
+                else songs.find { it.id == id }?.let { it to (sec / 60L) }
+            }
+            .sortedByDescending { it.second }
+            .map { it.first }
     }
 
     val context = LocalContext.current

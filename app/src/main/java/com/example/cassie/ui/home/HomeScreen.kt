@@ -46,9 +46,7 @@ import com.example.cassie.data.media.FavoritesStore
 import com.example.cassie.data.media.PlaybackManager
 import com.example.cassie.data.media.Playlist
 import com.example.cassie.data.media.PlaylistStore
-import com.example.cassie.data.media.PlayerState
 import com.example.cassie.data.media.Song
-import com.example.cassie.party.SkipperEngine
 import com.example.cassie.ui.home.AlphabetScrollIndex
 import com.example.cassie.ui.party.SkipperCard
 import com.example.cassie.ui.theme.CassieColors
@@ -155,13 +153,17 @@ fun HomeScreen(
     //    playlist preview. One map build replaces all of that. ──
     val songById = remember(state.songs) { state.songs.associateBy { it.id } }
 
-    // ── "Your Top 50" — ranked by lifetime minutes listened. ──
-    // We deliberately drop the minute count in the UI: the list is
-    // just a ranking, the metric is implicit (and only visible to
-    // Skipper internally for pattern detection).
-    val topByMinutesRaw by SkipperEngine.topSongsByMinutes.collectAsState()
-    val topSongs = remember(topByMinutesRaw, songById) {
-        topByMinutesRaw
+    // ── "Your Top 50" — ranked by play count (the old behavior). ──
+    // Reverted from the time-based ranking because the user reported
+    // the time-based system was showing wrong/wonky results — songs
+    // they only played once appeared as #1, the wrong artist showed
+    // up as the top artist. Play counts are a simpler, more honest
+    // metric for "what songs you actually opened".
+    val playCounts by listeningCounter?.counts?.collectAsState()
+        ?: remember { mutableStateOf(emptyMap()) }
+    val topSongs = remember(playCounts, songById) {
+        playCounts.entries
+            .sortedByDescending { it.value.count }
             .mapNotNull { (id, _) -> songById[id] }
             .take(10)
     }
@@ -171,40 +173,25 @@ fun HomeScreen(
         (playlistStore?.playlists?.value ?: emptyList()).take(6)
     }
 
-    // ── "Your Vibe" listening stats ────────────────────────────────────
-    // Source: PlaybackManager.listenedTimeSecBySong (the 1Hz coroutine
-    // loop counting each song's real playback seconds). User explicitly
-    // asked for "for loops counting each song" — this is the loop, and
-    // it's by TIME not by play count, so the top artist reflects who
-    // you've actually listened to, not who you've tapped most.
-    val playerState by playbackManager?.playerState?.collectAsState()
-        ?: remember { mutableStateOf(PlayerState()) }
-    val listenedByTime = playerState.listenedTimeSecBySong
-    val vibeStats = remember(listenedByTime, songById) {
-        var totalSec = 0L
-        var uniqueSongs = 0
-        val artistSec = mutableMapOf<String, Long>()
-        for ((songId, sec) in listenedByTime) {
-            if (sec <= 0L) continue
-            uniqueSongs++
-            totalSec += sec
+    // ── "Your Vibe" listening stats (reverted to play count). ────────
+    // Same reason as the topSongs revert: the time-based loop produced
+    // surprising results (one play → #1, wrong top artist) and the
+    // user wanted the old "play count" behavior back. The
+    // listenedTimeSecBySong field is still tracked in PlayerState
+    // (kept per user's request) but the UI doesn't read it.
+    val vibeStats = remember(playCounts, songById) {
+        var totalPlays = 0
+        val artistPlays = mutableMapOf<String, Int>()
+        for ((songId, pc) in playCounts) {
+            totalPlays += pc.count
             val song = songById[songId] ?: continue
-            // Group by song.artist (exact string). The user's complaint
-            // that "all music sums up to one artist" was caused by
-            // either the old count-based calculation OR by songs
-            // having identical artist strings (common when files
-            // lack ID3 tags and MediaStore returns "<unknown>").
-            // The numbers below are honest — if a user has many
-            // files with the same blank artist, they DO collapse,
-            // but that's a tagging issue, not a code one.
-            artistSec[song.artist] = (artistSec[song.artist] ?: 0L) + sec
+            artistPlays[song.artist] = (artistPlays[song.artist] ?: 0) + pc.count
         }
-        val topArtist = artistSec.maxByOrNull { it.value }?.key ?: "—"
-        val totalMinutes = (totalSec / 60L).toInt()
+        val topArtist = artistPlays.maxByOrNull { it.value }?.key ?: "—"
         VibeStats(
-            songsPlayed   = uniqueSongs,
+            totalPlays    = totalPlays,
+            uniqueSongs   = playCounts.size,
             topArtist     = topArtist,
-            totalMinutes  = totalMinutes,
         )
     }
 
@@ -214,13 +201,13 @@ fun HomeScreen(
     // there are no playlists), so it always counts as one row.
     val songsStartIndex = remember(
         topSongs.isNotEmpty(),
-        vibeStats.songsPlayed > 0,
+        vibeStats.totalPlays > 0,
     ) {
         var idx = 1                              // Skipper card
         if (topSongs.isNotEmpty()) idx++        // Your Top 50
         idx++                                   // Playlists (always)
         idx++                                   // separator
-        if (vibeStats.songsPlayed > 0) idx++    // Vibe card
+        if (vibeStats.totalPlays > 0) idx++     // Vibe card
         idx                                     // Your Library header
     }
 
@@ -285,9 +272,9 @@ fun HomeScreen(
 }
 
 data class VibeStats(
-    val songsPlayed: Int,
+    val totalPlays: Int,
+    val uniqueSongs: Int,
     val topArtist: String,
-    val totalMinutes: Int,
 )
 
 // ── Loading Skeleton ──────────────────────────────────────────────
@@ -750,25 +737,10 @@ private fun ContentDashboard(
                 }
 
                 // ── Featured sections ──
-                // Your Top 50 (gated on having data; Playlists shortcut
-                // is ALWAYS shown — the empty state still surfaces the
-                // "create your first playlist" path).
-                if (topSongs.isNotEmpty()) {
-                    item {
-                        Column(Modifier.padding(start = 16.dp, end = 16.dp)) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                SectionTitle("Your Top 50")
-                                TextButton(onClick = onNavigateToTop50) {
-                                    Text("See all", color = PurpleAccent.copy(0.7f), fontSize = 11.sp, letterSpacing = 1.sp)
-                                }
-                            }
-                            Column { topSongs.forEachIndexed { idx, song ->
-                                Top50ByMinutesRow(rank = idx + 1, song = song, onClick = { onSongClick(song) })
-                            }}
-                            Spacer(Modifier.height(16.dp))
-                        }
-                    }
-                }
+                // (Top 50 section removed from Home — the user requested
+                // it. The full Top 50 screen is still reachable via the
+                // TrendingUp icon in the home header. Data persistence
+                // for the full screen is unchanged.)
 
                 // Playlists shortcut — always visible on Home. Horizontal
                 // scroll of previews when playlists exist; empty-state
@@ -842,7 +814,7 @@ private fun ContentDashboard(
                 }
 
                     // ── Your Vibe: listening stats card ──
-                if (vibeStats.songsPlayed > 0) {
+                if (vibeStats.totalPlays > 0) {
                     item { Spacer(Modifier.height(4.dp)) }
                     item { VibeCard(stats = vibeStats) }
                     item { Spacer(Modifier.height(8.dp)) }
@@ -1488,8 +1460,8 @@ private fun VibeCard(stats: VibeStats) {
             }
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                StatItem(label = "Songs",      value = "${stats.songsPlayed}")
-                StatItem(label = "Minutes",    value = "${stats.totalMinutes}")
+                StatItem(label = "Plays",      value = "${stats.totalPlays}")
+                StatItem(label = "Songs",      value = "${stats.uniqueSongs}")
                 StatItem(label = "Top Artist", value = stats.topArtist, maxLines = 1)
             }
         }

@@ -13,6 +13,9 @@ import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -29,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -102,6 +106,8 @@ fun PlaylistDetailScreen(
     var showRenameDialog by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val addedCountState = remember { mutableStateOf(0) }
 
     // ── Reactively read the current playlist from the store ──
     val allStorePlaylists by (playlistStore?.playlists?.collectAsState()
@@ -155,6 +161,23 @@ fun PlaylistDetailScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize().background(PureBlack)) {
+        // Snackbar host for the Add Songs feedback. Anchored to the
+        // bottom of the screen so it doesn't conflict with the
+        // LazyColumn content above.
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 24.dp, start = 16.dp, end = 16.dp),
+            snackbar = { data ->
+                Snackbar(
+                    snackbarData = data,
+                    containerColor = PurpleAccent,
+                    contentColor = Color.White,
+                )
+            },
+        )
+
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 8.dp),
@@ -299,10 +322,30 @@ fun PlaylistDetailScreen(
     }
 
     // ── Add Songs Dialog ──
+    // Modern, multi-add flow. The dialog does NOT close after a tap
+    // — the user can keep adding songs in a row without re-opening
+    // it. Each successful add shows a brief snackbar with the song
+    // title and increments a "X added" counter in the header so the
+    // user can see their batch progress. Songs that are already in
+    // the playlist disappear from the list reactively (via
+    // currentPlaylistSongs -> existingIds).
     if (showAddDialog && playlistStore != null) {
         val existingIds = currentPlaylistSongs.map { it.id }.toSet()
         val allAvailable = allSongs.filter { it.id !in existingIds }
         var addSearch by remember { mutableStateOf("") }
+        // Per-row "just added" flag for the checkmark flash. Cleared
+        // automatically when the row leaves the available list (i.e.
+        // its key changes from a stable id to nothing, but the key
+        // is the song id so the row just unmounts — perfect).
+        val justAddedIds = remember { mutableStateMapOf<Long, Long>() }
+        LaunchedEffect(showAddDialog) {
+            // Reset transient state when the dialog re-opens.
+            if (showAddDialog) {
+                addSearch = ""
+                justAddedIds.clear()
+                addedCountState.value = 0
+            }
+        }
         val filteredAvailable = remember(allAvailable, addSearch) {
             if (addSearch.isBlank()) allAvailable
             else allAvailable.filter {
@@ -313,21 +356,45 @@ fun PlaylistDetailScreen(
 
         CassieDialog(
             onDismissRequest = { showAddDialog = false },
-            dialogTitle = { Text("Add Songs", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            dialogTitle = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Add Songs", color = TextPrimary, fontWeight = FontWeight.Bold)
+                    if (addedCountState.value > 0) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "${addedCountState.value} added",
+                            color = PurpleAccent,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            },
             dialogText = {
                 Column {
+                    // Search field — modern outline style, no underline.
                     OutlinedTextField(
                         value = addSearch,
                         onValueChange = { addSearch = it },
                         placeholder = { Text("Search songs...", color = TextDim, fontSize = 14.sp) },
                         singleLine = true,
                         leadingIcon = { Icon(Icons.Default.Search, null, tint = TextDim, modifier = Modifier.size(20.dp)) },
+                        trailingIcon = if (addSearch.isNotEmpty()) {
+                            {
+                                IconButton(onClick = { addSearch = "" }, modifier = Modifier.size(36.dp)) {
+                                    Icon(Icons.Default.Close, "Clear", tint = TextDim, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        } else null,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary,
                             focusedBorderColor = PurpleAccent, cursorColor = PurpleAccent,
                             unfocusedBorderColor = Color.Transparent,
+                            focusedContainerColor = SurfaceGrey.copy(alpha = 0.4f),
+                            unfocusedContainerColor = SurfaceGrey.copy(alpha = 0.4f),
                         ),
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
                     )
 
                     if (allAvailable.isEmpty()) {
@@ -335,38 +402,30 @@ fun PlaylistDetailScreen(
                     } else if (filteredAvailable.isEmpty() && addSearch.isNotBlank()) {
                         Text("No songs match your search", color = TextDim, fontSize = 14.sp)
                     } else {
-                        LazyColumn(Modifier.height(300.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        LazyColumn(Modifier.height(360.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             items(filteredAvailable, key = { it.id }) { song ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(12.dp).clip(RoundedCornerShape(8.dp)).clickable {
+                                val justAdded = justAddedIds[song.id] ?: 0L
+                                AddSongRow(
+                                    song = song,
+                                    justAddedAt = justAdded,
+                                    onAdd = {
                                         playlistStore.addToPlaylist(currentPlaylist.id, song.id)
-                                        showAddDialog = false
-                                    },
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier.size(36.dp).clip(RoundedCornerShape(4.dp)).background(SurfaceGrey),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (song.albumArtUri != null) {
-                                            AsyncImage(
-                                                model = remember(song.id) {
-                                                    ImageRequest.Builder(context).data(song.albumArtUri).size(72)
-                                                        .memoryCachePolicy(CachePolicy.ENABLED).diskCachePolicy(CachePolicy.ENABLED).build()
-                                                },
-                                                contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop
+                                        addedCountState.value += 1
+                                        justAddedIds[song.id] = System.currentTimeMillis()
+                                        // Fire-and-forget snackbar. The
+                                        // dialog stays open — the
+                                        // snackbar shows above it via
+                                        // the SnackbarHost in the
+                                        // screen's root Box.
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar(
+                                                message = "Added \"${song.title}\"",
+                                                duration = SnackbarDuration.Short,
                                             )
-                                        } else {
-                                            Icon(Icons.Default.MusicNote, null, tint = PurpleAccent.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
                                         }
-                                    }
-                                    Spacer(Modifier.width(10.dp))
-                                    Column(Modifier.weight(1f)) {
-                                        Text(song.title, color = TextPrimary, fontSize = 14.sp, maxLines = 1)
-                                        Text(song.artist, color = TextSecondary, fontSize = 12.sp, maxLines = 1)
-                                    }
-                                    Icon(Icons.Default.Add, null, tint = PurpleAccent, modifier = Modifier.size(20.dp))
-                                }
+                                    },
+                                    context = context,
+                                )
                             }
                         }
                     }
@@ -526,4 +585,121 @@ private fun formatDuration(millis: Long): String {
     val min = totalSec / 60
     val sec = totalSec % 60
     return "%d:%02d".format(min, sec)
+}
+
+/**
+ * One row in the Add Songs dialog. Tapping fires [onAdd] — the
+ * dialog does NOT close. The trailing icon morphs from a purple "+"
+ * to a green check for ~900ms after a successful add, so the user
+ * gets a clear visual confirmation that the tap registered.
+ */
+@Composable
+private fun AddSongRow(
+    song: Song,
+    justAddedAt: Long,
+    onAdd: () -> Unit,
+    context: android.content.Context,
+) {
+    // Spring-scale the row briefly on add, and fade in the check
+    // icon while fading out the + icon over ~900ms.
+    val now = remember { mutableStateOf(System.currentTimeMillis()) }
+    val sinceAdd = now.value - justAddedAt
+    val showCheck = justAddedAt > 0L && sinceAdd in 0..900L
+    val addAlpha by animateFloatAsState(
+        targetValue = if (showCheck) 0f else 1f,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "addAlpha",
+    )
+    val checkAlpha by animateFloatAsState(
+        targetValue = if (showCheck) 1f else 0f,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "checkAlpha",
+    )
+    // Ticker to drive the check fade-out at 900ms post-add.
+    LaunchedEffect(justAddedAt) {
+        if (justAddedAt > 0L) {
+            kotlinx.coroutines.delay(50L)
+            now.value = System.currentTimeMillis()
+        }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(SurfaceGrey.copy(alpha = 0.35f))
+            .clickable(onClick = onAdd)
+            .padding(vertical = 8.dp, horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Album art
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(SurfaceGrey),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (song.albumArtUri != null) {
+                AsyncImage(
+                    model = remember(song.id) {
+                        ImageRequest.Builder(context)
+                            .data(song.albumArtUri)
+                            .size(88)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .build()
+                    },
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Icon(
+                    Icons.Default.MusicNote,
+                    null,
+                    tint = PurpleAccent.copy(alpha = 0.5f),
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        // Title + artist
+        Column(Modifier.weight(1f)) {
+            Text(
+                song.title,
+                color = TextPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                song.artist,
+                color = TextSecondary,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        // Trailing icon — + or check, with crossfade
+        Box(modifier = Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+            Icon(
+                Icons.Default.Add,
+                contentDescription = "Add to playlist",
+                tint = PurpleAccent,
+                modifier = Modifier
+                    .size(22.dp)
+                    .graphicsLayer { alpha = addAlpha },
+            )
+            Icon(
+                Icons.Default.Check,
+                contentDescription = "Added",
+                tint = Color(0xFF4CAF50),
+                modifier = Modifier
+                    .size(22.dp)
+                    .graphicsLayer { alpha = checkAlpha },
+            )
+        }
+    }
 }
