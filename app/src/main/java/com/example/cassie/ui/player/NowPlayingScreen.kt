@@ -96,54 +96,15 @@ fun NowPlayingScreen(
 
     // ── swipe-down-to-dismiss ────────────────────────────────────────
     // Translates the whole NowPlaying screen downward as the user drags.
-    // On release: if the drag past the dismiss threshold (~120dp) or
-    // velocity is high, slide it off-screen and call onClose(). Otherwise
-    // spring back to 0. Pairs with the iOS-style modal feel.
-    val swipeOffsetY = remember { Animatable(0f) }
-    val swipeAlpha   = remember { Animatable(1f) }
-    val swipeScope   = rememberCoroutineScope()
+    // The actual close animation is handled by AnimatedContent in
+    // MainActivity (so the new screen is already rendered behind us
+    // and visible as the old screen slides off — no black hole).
+    // This `dragOffsetY` is only used for GESTURE FEEDBACK while the
+    // user is actively dragging; once they release, AnimatedContent
+    // takes over and slides the screen the rest of the way.
+    val dragOffsetY = remember { Animatable(0f) }
+    val dragScope   = rememberCoroutineScope()
     val dismissThresholdPx = with(LocalDensity.current) { 120.dp.toPx() }
-
-    // ── unified "close with animation" ───────────────────────────────
-    // All three close paths (swipe-down release, X button, hardware
-    // back) go through this lambda so the dismissal feels consistent
-    // and slow. Animate the screen sliding off + fading out, then
-    // hand off to onClose() which switches the actual screen.
-    val closeWithAnimation: () -> Unit = {
-        swipeScope.launch {
-            launch {
-                swipeOffsetY.animateTo(
-                    targetValue   = 1500f,
-                    animationSpec = tween(
-                        durationMillis = 380,
-                        easing         = FastOutSlowInEasing,
-                    ),
-                )
-            }
-            launch {
-                swipeAlpha.animateTo(
-                    targetValue   = 0f,
-                    animationSpec = tween(
-                        durationMillis = 380,
-                        easing         = FastOutSlowInEasing,
-                    ),
-                )
-            }
-            // After the visual close completes, hand off to the
-            // caller's onClose (which switches the screen).
-            launch {
-                kotlinx.coroutines.delay(380)
-                onClose()
-            }
-        }
-    }
-
-    // ── back button intercept ───────────────────────────────────────
-    // The outer BackHandler in MainActivity pops the back stack.
-    // When NowPlaying is on screen, the INNER handler (this one) is
-    // picked first by Compose — it routes the back press through the
-    // unified animated close instead of an instant screen switch.
-    BackHandler(enabled = true) { closeWithAnimation() }
 
     LaunchedEffect(Unit) {
         launch {
@@ -377,29 +338,29 @@ fun NowPlayingScreen(
             .fillMaxSize()
             .pointerInput(Unit) {
                 // Swipe-down to dismiss NowPlaying (iOS-style modal).
-                // Don't fight the seekbar's horizontal drag — only
-                // consume vertical motion.
-                var totalDrag = 0f
+                // During the drag: `dragOffsetY` follows the finger so
+                // the user sees the screen slide under their thumb.
+                // On release past the threshold: call onClose() and let
+                // AnimatedContent (in MainActivity) take over the rest
+                // of the close animation — the new screen is already
+                // rendered behind us, so the user sees a smooth handoff
+                // (no black hole).
                 detectVerticalDragGestures(
-                    onDragStart = { totalDrag = 0f },
                     onDragEnd = {
-                        val past = swipeOffsetY.value > dismissThresholdPx
-                        if (past) {
-                            // Use the unified animated close so the
-                            // dismissal feels the same as X / back.
-                            closeWithAnimation()
+                        if (dragOffsetY.value > dismissThresholdPx) {
+                            // Past threshold → close. AnimatedContent
+                            // handles the slide-out + crossfade.
+                            onClose()
                         } else {
-                            // Spring back to rest.
-                            swipeScope.launch {
-                                launch { swipeOffsetY.animateTo(0f, spring()) }
-                                launch { swipeAlpha.animateTo(1f, spring()) }
+                            // Under threshold → spring back to rest.
+                            dragScope.launch {
+                                dragOffsetY.animateTo(0f, spring())
                             }
                         }
                     },
                     onDragCancel = {
-                        swipeScope.launch {
-                            launch { swipeOffsetY.animateTo(0f, spring()) }
-                            launch { swipeAlpha.animateTo(1f, spring()) }
+                        dragScope.launch {
+                            dragOffsetY.animateTo(0f, spring())
                         }
                     },
                 ) { change, dragAmount ->
@@ -408,16 +369,19 @@ fun NowPlayingScreen(
                         // swipes (which often mean "scroll content")
                         // pass through to the LazyColumn.
                         change.consume()
-                        totalDrag += dragAmount
-                        swipeScope.launch {
-                            swipeOffsetY.snapTo(swipeOffsetY.value + dragAmount)
+                        dragScope.launch {
+                            dragOffsetY.snapTo(dragOffsetY.value + dragAmount)
                         }
                     }
                 }
             }
             .graphicsLayer {
-                translationY = offsetY.value.dp.toPx() + swipeOffsetY.value
-                this.alpha   = alpha.value * swipeAlpha.value
+                // dragOffsetY is gesture feedback only; the entrance
+                // animation still uses offsetY. Alpha is the entrance
+                // alpha — we do NOT fade during the close anymore, so
+                // the user can clearly see the screen sliding off.
+                translationY = offsetY.value.dp.toPx() + dragOffsetY.value
+                this.alpha   = alpha.value
             }
     ) {
         // ── immersive background: album art → blur → gradient overlay ─
@@ -471,7 +435,7 @@ fun NowPlayingScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment     = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = closeWithAnimation) {
+                IconButton(onClick = onClose) {
                     Icon(Icons.Default.KeyboardArrowDown, "Minimize", tint = TextPrimary, modifier = Modifier.size(28.dp))
                 }
                 Text("NOW PLAYING", color = TextDim, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)

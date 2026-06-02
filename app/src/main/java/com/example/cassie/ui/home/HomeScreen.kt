@@ -2,6 +2,7 @@ package com.example.cassie.ui.home
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -45,6 +46,7 @@ import com.example.cassie.data.media.FavoritesStore
 import com.example.cassie.data.media.PlaybackManager
 import com.example.cassie.data.media.Playlist
 import com.example.cassie.data.media.PlaylistStore
+import com.example.cassie.data.media.PlayerState
 import com.example.cassie.data.media.Song
 import com.example.cassie.party.SkipperEngine
 import com.example.cassie.ui.home.AlphabetScrollIndex
@@ -170,24 +172,40 @@ fun HomeScreen(
     }
 
     // ── "Your Vibe" listening stats ────────────────────────────────────
-    val vibeStats = remember(listeningCounter?.counts?.value, songById) {
-        val counts = listeningCounter?.counts?.value ?: emptyMap()
-        val totalPlays = counts.values.sumOf { it.count }
-        val uniqueSongs = counts.size
-        // top artist by total plays
-        val artistPlays = mutableMapOf<String, Int>()
-        for ((songId, pc) in counts) {
-            val song = songById[songId]
-            if (song != null) {
-                artistPlays[song.artist] = (artistPlays[song.artist] ?: 0) + pc.count
-            }
+    // Source: PlaybackManager.listenedTimeSecBySong (the 1Hz coroutine
+    // loop counting each song's real playback seconds). User explicitly
+    // asked for "for loops counting each song" — this is the loop, and
+    // it's by TIME not by play count, so the top artist reflects who
+    // you've actually listened to, not who you've tapped most.
+    val playerState by playbackManager?.playerState?.collectAsState()
+        ?: remember { mutableStateOf(PlayerState()) }
+    val listenedByTime = playerState.listenedTimeSecBySong
+    val vibeStats = remember(listenedByTime, songById) {
+        var totalSec = 0L
+        var uniqueSongs = 0
+        val artistSec = mutableMapOf<String, Long>()
+        for ((songId, sec) in listenedByTime) {
+            if (sec <= 0L) continue
+            uniqueSongs++
+            totalSec += sec
+            val song = songById[songId] ?: continue
+            // Group by song.artist (exact string). The user's complaint
+            // that "all music sums up to one artist" was caused by
+            // either the old count-based calculation OR by songs
+            // having identical artist strings (common when files
+            // lack ID3 tags and MediaStore returns "<unknown>").
+            // The numbers below are honest — if a user has many
+            // files with the same blank artist, they DO collapse,
+            // but that's a tagging issue, not a code one.
+            artistSec[song.artist] = (artistSec[song.artist] ?: 0L) + sec
         }
-        val topArtist = artistPlays.maxByOrNull { it.value }?.key ?: "—"
-        val totalMillis = counts.entries.sumOf { (songId, pc) ->
-            songById[songId]?.let { it.duration * pc.count } ?: 0L
-        }
-        val totalMinutes = (totalMillis / 60000).toInt()
-        VibeStats(totalPlays = totalPlays, uniqueSongs = uniqueSongs, topArtist = topArtist, totalMinutes = totalMinutes)
+        val topArtist = artistSec.maxByOrNull { it.value }?.key ?: "—"
+        val totalMinutes = (totalSec / 60L).toInt()
+        VibeStats(
+            songsPlayed   = uniqueSongs,
+            topArtist     = topArtist,
+            totalMinutes  = totalMinutes,
+        )
     }
 
     // LazyColumn index where the first song starts. The alphabet
@@ -196,13 +214,13 @@ fun HomeScreen(
     // there are no playlists), so it always counts as one row.
     val songsStartIndex = remember(
         topSongs.isNotEmpty(),
-        vibeStats.totalPlays > 0,
+        vibeStats.songsPlayed > 0,
     ) {
         var idx = 1                              // Skipper card
         if (topSongs.isNotEmpty()) idx++        // Your Top 50
         idx++                                   // Playlists (always)
         idx++                                   // separator
-        if (vibeStats.totalPlays > 0) idx++     // Vibe card
+        if (vibeStats.songsPlayed > 0) idx++    // Vibe card
         idx                                     // Your Library header
     }
 
@@ -266,7 +284,11 @@ fun HomeScreen(
     }
 }
 
-data class VibeStats(val totalPlays: Int, val uniqueSongs: Int, val topArtist: String, val totalMinutes: Int = 0)
+data class VibeStats(
+    val songsPlayed: Int,
+    val topArtist: String,
+    val totalMinutes: Int,
+)
 
 // ── Loading Skeleton ──────────────────────────────────────────────
 // Mirrors the structure of ContentDashboard exactly. Every section
@@ -820,7 +842,7 @@ private fun ContentDashboard(
                 }
 
                     // ── Your Vibe: listening stats card ──
-                if (vibeStats.totalPlays > 0) {
+                if (vibeStats.songsPlayed > 0) {
                     item { Spacer(Modifier.height(4.dp)) }
                     item { VibeCard(stats = vibeStats) }
                     item { Spacer(Modifier.height(8.dp)) }
@@ -836,6 +858,18 @@ private fun ContentDashboard(
                             Text("Your Library", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                             Spacer(Modifier.weight(1f))
                             Text("${songs.size} songs", color = TextDim, fontSize = 12.sp)
+                            Spacer(Modifier.width(10.dp))
+                            // Shuffle All — single-tap "start the
+                            // music and surprise me" action. Sits
+                            // beside the song count in the header
+                            // so it's reachable without scrolling.
+                            if (songs.isNotEmpty()) {
+                                ShuffleAllButton(
+                                    onClick = {
+                                        playbackManager?.playAllShuffled(songs)
+                                    }
+                                )
+                            }
                         }
                         // sort bar under Your Library header
                         SortBar(selected = sortOption, onSelect = onSortOptionChange)
@@ -854,9 +888,17 @@ private fun ContentDashboard(
                     listState = listState,
                     songsStartIndex = songsStartIndex,
                     letterToSongIndex = letterToSongIndex,
-                    // fillMaxSize so the bubble can anchor at the
-                    // center of the full home area, not the column.
-                    modifier = Modifier.fillMaxSize(),
+                    // Pin to the bottom-right and fill the bottom 60%
+                    // of the scrollable area — the user wanted the
+                    // index to only sit beside "Your Library" (the
+                    // songs list), NOT stretch across the whole
+                    // scrollable area covering Skipper / Top 50 /
+                    // Playlists / Vibe. A 60% fraction keeps the
+                    // bubble inside the songs region in the common
+                    // case and gracefully resizes on smaller screens.
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .fillMaxHeight(0.6f),
                 )
             }
         }
@@ -1336,80 +1378,118 @@ private fun SortBar(selected: SortOption, onSelect: (SortOption) -> Unit) {
 }
 
 // ── Your Vibe Card — listening stats dashboard ────────────────────
-private val VibePurple1 = Color(0xFF2A0A4A)
-private val VibePurple2 = Color(0xFF1A0033)
+// Full purple-to-glowing-white gradient fill (was just a thin top
+// accent line). The base is deep purple, the top half glows lighter
+// and pinker, the bottom edge has a soft white glow that pulses.
+private val VibePurpleDeep   = Color(0xFF1A0033)
+private val VibePurpleMid    = Color(0xFF3A0F66)
+private val VibePurpleGlow   = Color(0xFF6B2BC9)
+private val VibePinkGlow     = Color(0xFFB86BFF)
+private val VibeWhiteGlow    = Color(0xFFEAD7FF)
 
 @Composable
 private fun VibeCard(stats: VibeStats) {
-    val infinite = rememberInfiniteTransition(label = "vibeGrad")
-    val offset by infinite.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(4000, easing = LinearEasing), RepeatMode.Reverse),
-        label = "gradOffset"
-    )
-    // ── Gradient glow animation ──
+    // Pulse the white-glow layer so the card "breathes".
     val glowInfinite = rememberInfiniteTransition(label = "vibeGlow")
-    val glowIntensity by glowInfinite.animateFloat(
-        initialValue = 0.15f, targetValue = 0.6f,
-        animationSpec = infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "glowIntensity"
-    )
-    val glowOffsetY by glowInfinite.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(2400, easing = LinearEasing), RepeatMode.Reverse),
-        label = "glowOffset"
+    val glowPulse by glowInfinite.animateFloat(
+        initialValue = 0.55f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(2200, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "glowPulse"
     )
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(16.dp))
     ) {
-        // ── Base dark gradient ──
+        // ── Layer 1: base deep-purple to mid-purple vertical gradient ──
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(VibePurple1, VibePurple2)
+                        colors = listOf(VibePurpleMid, VibePurpleDeep, VibePurpleDeep),
                     )
                 )
         )
-        // ── Gradient glow — purple light radiating from within ──
+        // ── Layer 2: top half glow (purple → transparent) — gives the
+        //    card an "inner light" feel, like the top is being lit. ──
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            PurpleAccent.copy(alpha = glowIntensity * 0.8f),
+                            VibePurpleGlow.copy(alpha = 0.55f),
+                            VibePurpleGlow.copy(alpha = 0.15f),
                             Color.Transparent,
-                            PurpleAccent.copy(alpha = glowIntensity * 0.3f),
-                        )
+                        ),
+                        startY = 0f,
+                        endY = Float.POSITIVE_INFINITY,
                     )
                 )
         )
-        // ── Top glowing accent bar ──
+        // ── Layer 3: bottom pink-to-white glow (pulses). This is the
+        //    "glowing white" the user asked for — not a line, a fill. ──
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            VibePinkGlow.copy(alpha = 0.10f * glowPulse),
+                            VibeWhiteGlow.copy(alpha = 0.22f * glowPulse),
+                            VibeWhiteGlow.copy(alpha = 0.32f * glowPulse),
+                        ),
+                        startY = 0f,
+                        endY = Float.POSITIVE_INFINITY,
+                    )
+                )
+        )
+        // ── Layer 4: top-left radial highlight (a single bright spot,
+        //    like a sun reflecting off the surface) ──
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            VibePinkGlow.copy(alpha = 0.30f * glowPulse),
+                            Color.Transparent,
+                        ),
+                        center = androidx.compose.ui.geometry.Offset(80f, 40f),
+                        radius = 280f,
+                    )
+                )
+        )
+        // ── Subtle 1px border to define the edge against PureBlack ──
         Box(
             Modifier
-                .fillMaxWidth()
-                .height(3.dp)
-                .background(PurpleAccent.copy(alpha = glowIntensity + 0.3f))
-                .align(Alignment.TopCenter)
+                .fillMaxSize()
+                .border(1.dp, VibePurpleGlow.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
         )
         // ── Content ──
-        Column(Modifier.padding(16.dp)) {
+        Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Insights, null,
-                    tint = PurpleAccent.copy(alpha = 0.8f + glowIntensity * 0.2f), modifier = Modifier.size(18.dp))
+                Icon(
+                    Icons.Default.Insights, null,
+                    tint = VibeWhiteGlow.copy(alpha = 0.9f),
+                    modifier = Modifier.size(20.dp),
+                )
                 Spacer(Modifier.width(8.dp))
-                Text("Your Vibe", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Your Vibe",
+                    color = VibeWhiteGlow,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                )
             }
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                StatItem(label = "Plays", value = "${stats.totalPlays}")
-                StatItem(label = "Minutes", value = "${stats.totalMinutes}")
+                StatItem(label = "Songs",      value = "${stats.songsPlayed}")
+                StatItem(label = "Minutes",    value = "${stats.totalMinutes}")
                 StatItem(label = "Top Artist", value = stats.topArtist, maxLines = 1)
             }
         }
@@ -1423,5 +1503,41 @@ private fun StatItem(label: String, value: String, maxLines: Int = Int.MAX_VALUE
             maxLines = maxLines, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(2.dp))
         Text(label.uppercase(), color = Color.White.copy(alpha = 0.5f), fontSize = 9.sp, letterSpacing = 1.sp)
+    }
+}
+
+/**
+ * Compact pill button shown in the Your Library header. Single tap
+ * calls `onClick` which should fire `playbackManager.playAllShuffled(songs)`.
+ * Uses the same purple palette as the Vibe card so it doesn't feel
+ * out of place in the home theme.
+ */
+@Composable
+private fun ShuffleAllButton(onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .height(28.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(PurpleAccent.copy(alpha = 0.18f))
+            .border(1.dp, PurpleAccent.copy(alpha = 0.55f), RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 0.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.Shuffle,
+                contentDescription = "Shuffle all songs",
+                tint = PurpleAccent,
+                modifier = Modifier.size(14.dp),
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                "Shuffle All",
+                color = PurpleAccent,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
     }
 }

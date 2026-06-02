@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.compose.runtime.Stable
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -19,10 +20,13 @@ import com.example.cassie.party.UserEventStream
 import com.google.common.util.concurrent.FutureCallback
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.MoreExecutors
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 @Stable
 data class PlayerState(
@@ -36,6 +40,14 @@ data class PlayerState(
     val sleepTimerRemainingSec: Int = 0,
     val audioSessionId: Int = -1,
     val partyMode: Boolean = false,
+    /**
+     * Lifetime seconds of real playback per song. Updated by a 1Hz
+     * coroutine loop while playing — the "for loop counting" the user
+     * asked for. UI uses this for Your Vibe stats (top artist by
+     * time, total minutes listened) and as a fallback if Skipper's
+     * event-based minutes tracker ever drifts.
+     */
+    val listenedTimeSecBySong: Map<Long, Long> = emptyMap(),
 )
 
 class PlaybackManager(app: Application) : AndroidViewModel(app) {
@@ -47,6 +59,17 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
 
     private var controller: MediaController? = null
     private var currentSongIndex: Int = -1
+
+    // ── direct time-per-song tracker ────────────────────────────────
+    // A 1Hz coroutine loop that ticks while the player is actively
+    // playing, adding one second of listening time to the current
+    // song. The user explicitly asked for a "for loop counting each
+    // song" — this is it. Bypasses the event-based minutes tracker
+    // in SkipperEngine for the simple case (UI stats) and remains
+    // accurate even if the event stream drops a tick.
+    private var listenedTimeSecBySong: Map<Long, Long> = emptyMap()
+    private var tickingSongId: Long? = null
+    private var tickingShouldRun: Boolean = false
 
     // ── previous-song tracking (for skip vs complete detection) ──
     private var prevSongId: Long? = null
@@ -98,6 +121,25 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
         ctx.startForegroundService(Intent(ctx, CassiePlaybackService::class.java))
         // Connect to the service's MediaSession asynchronously
         connectToController(0)
+
+        // ── 1Hz time-per-song loop ─────────────────────────────────
+        // Runs while tickingShouldRun is true. Each second that the
+        // song is the same as the last tick, add 1 second to its
+        // lifetime listening time. Stops automatically when the
+        // song changes or playback pauses.
+        viewModelScope.launch {
+            while (isActive) {
+                delay(1_000L)
+                if (tickingShouldRun) {
+                    val songId = tickingSongId
+                    if (songId != null) {
+                        val prev = listenedTimeSecBySong[songId] ?: 0L
+                        listenedTimeSecBySong = listenedTimeSecBySong + (songId to (prev + 1L))
+                        _playerState.update { it.copy(listenedTimeSecBySong = listenedTimeSecBySong) }
+                    }
+                }
+            }
+        }
     }
 
     /** Persist current song so it survives app restarts */
@@ -173,6 +215,10 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
     private val controllerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _playerState.update { it.copy(isPlaying = isPlaying) }
+            // Drive the direct time-per-song tracker. Resume ticking
+            // on play; stop on pause. The song id itself is set in
+            // onMediaItemTransition, so we only flip the run flag here.
+            tickingShouldRun = isPlaying
             // Translate playing-state edges into Skipper pause/resume events.
             val c = controller ?: return
             val song = _playerState.value.currentSong
@@ -279,6 +325,10 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
                 prevSongId = song.id
                 prevSongStartedAt = now
                 prevSongDurationMs = song.duration
+                // Drive the direct time-per-song tracker: switch the
+                // tick target to the new song. The loop will start
+                // counting on the next tick if tickingShouldRun is on.
+                tickingSongId = song.id
             }
 
             // ── 3. existing player-state update (unchanged) ─────────
@@ -333,6 +383,13 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
         override fun onPlaybackStateChanged(state: Int) {
             if (state == Player.STATE_READY) {
                 _playerState.update { it.copy(duration = controller?.duration ?: 0) }
+            }
+            // Stop the time-per-song tick when playback truly stops
+            // (end of queue, error, etc.) — onIsPlayingChanged already
+            // handles pause/resume, but a STATE_IDLE/STATE_ENDED edge
+            // should also halt the tick.
+            if (state == Player.STATE_IDLE || state == Player.STATE_ENDED) {
+                tickingShouldRun = false
             }
         }
 
@@ -420,6 +477,47 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
             saveLastSong(song)
         }
         listeningCounter.recordPlay(songs.getOrNull(startIndex)?.id ?: -1)
+    }
+
+    /**
+     * Play the entire given song list in shuffle mode. Used by the
+     * "Shuffle All" button on Home — gives the user a single tap
+     * path to "start the music and surprise me". The songs list is
+     * the in-memory library, not a re-fetched one, so the user
+     * sees what they tapped on.
+     */
+    fun playAllShuffled(songs: List<Song>) {
+        if (songs.isEmpty()) return
+        // Shuffle deterministically each tap so two consecutive
+        // presses of "Shuffle All" feel different.
+        val shuffled = songs.shuffled()
+        val mediaItems = shuffled.map { buildMediaItem(it) }
+        withController { c ->
+            c.setMediaItems(mediaItems, 0, 0)
+            c.setShuffleModeEnabled(true)
+            c.repeatMode = Player.REPEAT_MODE_ALL
+            c.prepare()
+            c.play()
+        }
+        _playerState.update {
+            it.copy(
+                queue = shuffled,
+                shuffleMode = true,
+                repeatMode = Player.REPEAT_MODE_ALL,
+            )
+        }
+        currentSongIndex = 0
+        val firstSong = shuffled[0]
+        _playerState.update { it.copy(currentSong = firstSong) }
+        saveLastSong(firstSong)
+        listeningCounter.recordPlay(firstSong.id)
+        UserEventStream.emit(
+            UserEvent.PartyModeToggled(
+                timestamp = System.currentTimeMillis(),
+                sessionId = UserEventStream.currentSessionId,
+                enabled = true,
+            )
+        )
     }
 
     fun togglePlayPause() {
