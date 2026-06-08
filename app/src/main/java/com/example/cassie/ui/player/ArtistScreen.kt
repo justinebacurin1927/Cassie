@@ -119,7 +119,10 @@ private fun ArtistCard(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // artist avatar — first song's album art, or default
+            // artist avatar — always Person icon (NOT album art).
+            // Previously reused the first song's album art, which made
+            // it look like "album cover uses the artist profile" when
+            // all songs shared the same albumId.
             Box(
                 modifier = Modifier
                     .size(48.dp)
@@ -127,18 +130,7 @@ private fun ArtistCard(
                     .background(SurfaceGrey),
                 contentAlignment = Alignment.Center
             ) {
-                val firstSong = artist.songs.firstOrNull()
-                if (firstSong?.albumArtUri != null) {
-                    AsyncImage(
-                        model = remember(firstSong.id) {
-                            ImageRequest.Builder(context).data(firstSong.albumArtUri).size(96)
-                                .memoryCachePolicy(CachePolicy.ENABLED).diskCachePolicy(CachePolicy.ENABLED).build()
-                        },
-                        contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Icon(Icons.Default.Person, null, tint = PurpleAccent.copy(alpha = 0.5f), modifier = Modifier.size(24.dp))
-                }
+                Icon(Icons.Default.Person, null, tint = PurpleAccent.copy(alpha = 0.5f), modifier = Modifier.size(24.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {

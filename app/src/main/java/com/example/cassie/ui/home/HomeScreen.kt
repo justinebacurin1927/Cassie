@@ -1419,16 +1419,16 @@ private fun VibeCard(stats: VibeStats) {
             .padding(horizontal = 16.dp)
             .clip(RoundedCornerShape(16.dp))
     ) {
-        // ── Layer 1: vivid blue→purple→pink diagonal gradient ──
-        //    Unmistakably colorful — no more "all black" complaints.
+        // ── Layer 1: vivid diagonal gradient spanning the whole card ──
+        //    CRITICAL: Do NOT set custom start/end — the default (0,0 →
+        //    width,height) makes the gradient span the entire box.
+        //    Using POSITIVE_INFINITY stretches it to a solid color!
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.linearGradient(
                         colors = listOf(VibeBlueDeep, VibePurpleMid, VibePinkGlow),
-                        start = androidx.compose.ui.geometry.Offset(0f, 0f),
-                        end   = androidx.compose.ui.geometry.Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY),
                     )
                 )
         )
@@ -1445,8 +1445,6 @@ private fun VibeCard(stats: VibeStats) {
                             VibeLightGlow.copy(alpha = 0.50f * glowPulse),
                             VibeLightGlow.copy(alpha = 0.60f * glowPulse),
                         ),
-                        startY = 0f,
-                        endY = Float.POSITIVE_INFINITY,
                     )
                 )
         )
