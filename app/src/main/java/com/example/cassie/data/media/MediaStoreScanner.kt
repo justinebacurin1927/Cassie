@@ -6,6 +6,7 @@ import android.provider.MediaStore
 import androidx.compose.runtime.Stable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 @Stable
 data class Song(
@@ -68,13 +69,14 @@ class MediaStoreScanner(private val context: Context) {
                 val genreIdx = c.getColumnIndex(MediaStore.Audio.AudioColumns.GENRE)
                 val dataIdx = c.getColumnIndex(MediaStore.Audio.Media.DATA)
 
+                // Collect unique album IDs during scan so we can resolve
+                // actual album art from the Albums table in one pass.
+                val seenAlbumIds = mutableSetOf<Long>()
+
                 while (c.moveToNext()) {
-                    // Per-row try: a single bad row on a weird OEM
-                    // (e.g. MediaStore.Audio.AudioColumns.GENRE throwing
-                    // IllegalArgumentException on some pre-Q devices)
-                    // shouldn't kill the whole scan.
                     try {
                         val aid = c.getLong(albumId)
+                        seenAlbumIds.add(aid)
                         songs.add(Song(
                             id = c.getLong(id),
                             title = c.getString(title) ?: "Unknown",
@@ -84,17 +86,25 @@ class MediaStoreScanner(private val context: Context) {
                             duration = c.getLong(dur),
                             dateAdded = c.getLong(dateCol),
                             mimeType = c.getString(mime) ?: "audio/mpeg",
-                            // Only build album art URI when albumId is valid (>0).
-                            // When aid is 0 (untagged files), all songs get the
-                            // same generic image from MediaStore, making every
-                            // album cover look identical.
-                            albumArtUri = if (aid > 0L) Uri.parse("content://media/external/audio/albumart/$aid").toString() else null,
+                            // Set placeholder — will be resolved below
+                            albumArtUri = null,
                             genre = if (genreIdx >= 0) c.getString(genreIdx) ?: "" else "",
                             filePath = if (dataIdx >= 0) c.getString(dataIdx) else null,
                         ))
                     } catch (_: Exception) {
                         // skip this row, keep scanning
                     }
+                }
+
+                // ── Resolve actual album art from Albums table ──
+                // Querying the Albums table returns the REAL file path
+                // for album art (ALBUM_ART column). If it's null/empty
+                // the album has NO art — even if albumId > 0.
+                // This prevents all untagged songs from sharing the
+                // same generic MediaStore image.
+                if (seenAlbumIds.isNotEmpty()) {
+                    val artMap = resolveAlbumArt(seenAlbumIds)
+                    songs.replaceAll { it.copy(albumArtUri = artMap[it.albumId]) }
                 }
             }
         } catch (_: SecurityException) {
@@ -104,5 +114,48 @@ class MediaStoreScanner(private val context: Context) {
             // other query failure — return empty so the UI can recover
         }
         songs
+    }
+
+    /**
+     * Queries the [MediaStore.Audio.Albums] table for all given [albumIds]
+     * and returns a map: albumId → real album art URI (or null if no art
+     * exists). Uses a single IN query so it scales to any library size.
+     */
+    private fun resolveAlbumArt(albumIds: Set<Long>): Map<Long, String?> {
+        val validIds = albumIds.filter { it > 0L }
+        if (validIds.isEmpty()) return emptyMap()
+
+        val result = mutableMapOf<Long, String?>()
+        // Every ID we were asked about starts as null (no art).
+        validIds.forEach { result[it] = null }
+
+        val placeholders = validIds.joinToString(",") { "?" }
+        val selection = "${MediaStore.Audio.Albums._ID} IN ($placeholders)"
+        val args = validIds.map { it.toString() }.toTypedArray()
+
+        try {
+            context.contentResolver.query(
+                MediaStore.Audio.Albums.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.Audio.Albums._ID, MediaStore.Audio.Albums.ALBUM_ART),
+                selection, args, null
+            )?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Albums._ID)
+                val artCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Albums.ALBUM_ART)
+                while (cursor.moveToNext()) {
+                    val aid = cursor.getLong(idCol)
+                    val artPath = cursor.getString(artCol)
+                    if (!artPath.isNullOrEmpty()) {
+                        // Use file:// URI — works with Coil and avoids
+                        // MediaStore returning a generic image for a
+                        // missing art ID.
+                        result[aid] = Uri.fromFile(File(artPath)).toString()
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // If the query fails (permission, table missing, etc.)
+            // fall back to no art for everyone.
+        }
+        return result
     }
 }
