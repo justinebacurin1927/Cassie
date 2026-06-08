@@ -1390,11 +1390,11 @@ private fun SortBar(selected: SortOption, onSelect: (SortOption) -> Unit) {
 }
 
 // ── VibeCard ────────────────────────────────────────────────────
-// Pure violet gradient — deep purple left → bright violet right.
-// Single hue family so it's unmistakably purple/violet, not rainbow.
-private val VibeDeep   = Color(0xFF4C1D95) // deep violet
-private val VibeBright = Color(0xFF8B5CF6) // bright purple
-private val VibeLight  = Color(0xFFC4B5FD) // light lavender
+// Dark gradient — near-black left → deep violet right.
+// Dark and moody, fits Cassie's dark theme.
+private val VibeDarkest  = Color(0xFF0E0818) // near-black purple
+private val VibeDarkMid  = Color(0xFF1E0B36) // very dark purple
+private val VibeDarkEnd  = Color(0xFF3A1466) // dark violet
 
 @Composable
 private fun VibeCard(stats: VibeStats) {
@@ -1405,7 +1405,7 @@ private fun VibeCard(stats: VibeStats) {
             .clip(RoundedCornerShape(16.dp))
             .background(
                 Brush.horizontalGradient(
-                    colors = listOf(VibeDeep, VibeBright, VibeLight),
+                    colors = listOf(VibeDarkest, VibeDarkMid, VibeDarkEnd),
                 )
             )
             .border(1.5.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(16.dp)),
