@@ -150,79 +150,146 @@ private fun ArtistCard(
 
         if (expanded) {
             HorizontalDivider(color = TextDim.copy(alpha = 0.1f))
-            artist.songs.forEach { song ->
+            // Group the artist's songs by album so each album block
+            // shows its own cover art and name — not the generic
+            // "singer picture" on every row. This is the fix for
+            // "the album cover use the singer picture instead of
+            // its own".
+            val albumGroups = artist.songs.groupBy { it.album }
+            albumGroups.forEach { (albumName, albumSongs) ->
+                // ── Album header ──
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, top = 4.dp, end = 12.dp, bottom = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // album art small
+                    // Album art (first song of this album)
                     Box(
-                        modifier = Modifier.size(36.dp).clip(RoundedCornerShape(4.dp)).background(SurfaceGrey),
-                        contentAlignment = Alignment.Center
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(SurfaceGrey),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        if (song.albumArtUri != null) {
+                        val albumCoverSong = albumSongs.firstOrNull()
+                        if (albumCoverSong?.albumArtUri != null) {
                             AsyncImage(
-                                model = remember(song.id) {
-                                    ImageRequest.Builder(context).data(song.albumArtUri).size(72)
+                                model = remember(albumCoverSong.id) {
+                                    ImageRequest.Builder(context).data(albumCoverSong.albumArtUri).size(72)
                                         .memoryCachePolicy(CachePolicy.ENABLED).diskCachePolicy(CachePolicy.ENABLED).build()
                                 },
-                                contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
                             )
                         } else {
-                            Icon(Icons.Default.MusicNote, null, tint = PurpleAccent.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Album, null, tint = TextDim, modifier = Modifier.size(18.dp))
                         }
                     }
                     Spacer(Modifier.width(10.dp))
-                    Text(song.title, color = TextPrimary, fontSize = 14.sp, maxLines = 1, modifier = Modifier.weight(1f))
-                    // add to playlist
-                    Box(
-                        modifier = Modifier.size(28.dp).clip(CircleShape).background(PurpleAccent.copy(0.15f)).clickable { showPlaylistPicker = song.id },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null, tint = PurpleAccent.copy(0.7f), modifier = Modifier.size(16.dp))
-                    }
-                    Spacer(Modifier.width(6.dp))
-                    // play — queue the entire artist's songs
-                    Box(
-                        modifier = Modifier.size(28.dp).clip(CircleShape).background(TextDim.copy(0.1f)).clickable {
-                            playbackManager?.playInContext(song, artist.songs)
-                            onSongClick(song)
-                        },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.PlayArrow, "Play", tint = TextSecondary, modifier = Modifier.size(16.dp))
-                    }
+                    Text(albumName, color = PurpleAccent.copy(alpha = 0.8f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.weight(1f))
+                    Text("${albumSongs.size} songs", color = TextDim, fontSize = 11.sp)
                 }
 
-                // playlist picker
-                if (showPlaylistPicker == song.id && playlistStore != null) {
-                    val playlists by playlistStore.playlists.collectAsState()
-                    CassieDialog(
-                        onDismissRequest = { showPlaylistPicker = null },
-                        dialogTitle = { Text("Add to Playlist", color = TextPrimary, fontWeight = FontWeight.Bold) },
-                        dialogText = {
-                            if (playlists.isEmpty()) {
-                                Text("No playlists yet!", color = TextDim, fontSize = 14.sp)
-                            } else {
-                                LazyColumn(Modifier.height(200.dp)) {
-                                    items(playlists, key = { it.id }) { pl ->
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable {
-                                                playlistStore.addToPlaylist(pl.id, song.id)
-                                                showPlaylistPicker = null
-                                            }.padding(12.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(Icons.AutoMirrored.Filled.QueueMusic, null, tint = PurpleAccent, modifier = Modifier.size(20.dp))
-                                            Spacer(Modifier.width(10.dp))
-                                            Text(pl.name, color = TextPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                // ── Songs in this album ──
+                albumSongs.forEach { song ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 20.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Spacer(Modifier.width(10.dp))
+                        // Song number
+                        Text(
+                            "${albumSongs.indexOf(song) + 1}",
+                            color = TextDim,
+                            fontSize = 11.sp,
+                            modifier = Modifier.width(18.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            song.title,
+                            color = TextPrimary,
+                            fontSize = 14.sp,
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f),
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        // Add to playlist
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(PurpleAccent.copy(0.15f))
+                                .clickable { showPlaylistPicker = song.id },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.PlaylistAdd,
+                                null,
+                                tint = PurpleAccent.copy(0.7f),
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(6.dp))
+                        // Play
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(TextDim.copy(0.1f))
+                                .clickable {
+                                    playbackManager?.playInContext(song, artist.songs)
+                                    onSongClick(song)
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Default.PlayArrow,
+                                "Play",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
+
+                    // playlist picker
+                    if (showPlaylistPicker == song.id && playlistStore != null) {
+                        val playlists by playlistStore.playlists.collectAsState()
+                        CassieDialog(
+                            onDismissRequest = { showPlaylistPicker = null },
+                            dialogTitle = { Text("Add to Playlist", color = TextPrimary, fontWeight = FontWeight.Bold) },
+                            dialogText = {
+                                if (playlists.isEmpty()) {
+                                    Text("No playlists yet!", color = TextDim, fontSize = 14.sp)
+                                } else {
+                                    LazyColumn(Modifier.height(200.dp)) {
+                                        items(playlists, key = { it.id }) { pl ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .clickable {
+                                                        playlistStore.addToPlaylist(pl.id, song.id)
+                                                        showPlaylistPicker = null
+                                                    }
+                                                    .padding(12.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Icon(Icons.AutoMirrored.Filled.QueueMusic, null, tint = PurpleAccent, modifier = Modifier.size(20.dp))
+                                                Spacer(Modifier.width(10.dp))
+                                                Text(pl.name, color = TextPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                                            }
                                         }
                                     }
                                 }
-                            }
-                        },
-                        dialogConfirmButton = { TextButton(onClick = { showPlaylistPicker = null }) { Text("Done", color = PurpleAccent) } }
-                    )
+                            },
+                            dialogConfirmButton = { TextButton(onClick = { showPlaylistPicker = null }) { Text("Done", color = PurpleAccent) } }
+                        )
+                    }
                 }
             }
         }
