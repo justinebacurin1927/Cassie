@@ -1394,17 +1394,14 @@ private fun SortBar(selected: SortOption, onSelect: (SortOption) -> Unit) {
 // accent line). The base is deep purple, the top half glows lighter
 // and pinker, the bottom edge has a soft white glow that pulses.
 // ── VibeCard palette ────────────────────────────────────────────
-// The previous colors (#1A0033, #3A0F66, #6B2BC9) registered as
-// "almost black" against the PureBlack background — dark purples
-// blend with black at low brightness. Brightened to be clearly
-// purple. The base gradient is now visibly purple from corner to
-// corner, with the glow layers adding the soft white/pink wash on
-// top.
-private val VibePurpleDeep   = Color(0xFF3B0F7A) // was #1A0033 — main base
-private val VibePurpleMid    = Color(0xFF7B2DC9) // was #3A0F66 — top accent
-private val VibePurpleGlow   = Color(0xFFB86BFF) // was #6B2BC9 — top inner glow
-private val VibePinkGlow     = Color(0xFFE0B0FF) // was #B86BFF — bottom pink
-private val VibeWhiteGlow    = Color(0xFFF5EBFF) // was #EAD7FF — bright white wash
+// The user reported "IT'S ALL BLACK" — previous purples (#3B0F7A,
+// #7B2DC9) were too dark against PureBlack. Replaced with a vivid
+// blue→purple→pink gradient (matching the LumaBar glow colors)
+// that is unmistakably colorful on any screen brightness.
+private val VibeBlueDeep     = Color(0xFF2563EB) // blue-600     — base
+private val VibePurpleMid    = Color(0xFF8B5CF6) // violet-500   — mid
+private val VibePinkGlow     = Color(0xFFEC4899) // pink-500     — glow
+private val VibeLightGlow    = Color(0xFFFDF2F8) // pink-50      — white wash
 
 @Composable
 private fun VibeCard(stats: VibeStats) {
@@ -1422,25 +1419,20 @@ private fun VibeCard(stats: VibeStats) {
             .padding(horizontal = 16.dp)
             .clip(RoundedCornerShape(16.dp))
     ) {
-        // ── Layer 1: bright purple diagonal gradient — the WHOLE card
-        //    is visibly purple, not just a faint accent. The gradient
-        //    sweeps from a brighter mid-purple at top-left to a deeper
-        //    purple at bottom-right so the eye reads motion/depth. ──
+        // ── Layer 1: vivid blue→purple→pink diagonal gradient ──
+        //    Unmistakably colorful — no more "all black" complaints.
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.linearGradient(
-                        colors = listOf(VibePurpleMid, VibePurpleDeep),
+                        colors = listOf(VibeBlueDeep, VibePurpleMid, VibePinkGlow),
                         start = androidx.compose.ui.geometry.Offset(0f, 0f),
                         end   = androidx.compose.ui.geometry.Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY),
                     )
                 )
         )
-        // ── Layer 2: bottom white-glow wash (pulses). The user wanted
-        //    "purple + gradient" with a glowing-white finish — this is
-        //    the "glowing" part. Opacity tuned so it sits ON TOP of the
-        //    purple base, not in place of it. ──
+        // ── Layer 2: bottom white-glow wash (pulses) ──
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1449,26 +1441,24 @@ private fun VibeCard(stats: VibeStats) {
                         colors = listOf(
                             Color.Transparent,
                             Color.Transparent,
-                            VibePinkGlow.copy(alpha = 0.25f * glowPulse),
-                            VibeWhiteGlow.copy(alpha = 0.45f * glowPulse),
-                            VibeWhiteGlow.copy(alpha = 0.55f * glowPulse),
+                            VibePinkGlow.copy(alpha = 0.30f * glowPulse),
+                            VibeLightGlow.copy(alpha = 0.50f * glowPulse),
+                            VibeLightGlow.copy(alpha = 0.60f * glowPulse),
                         ),
                         startY = 0f,
                         endY = Float.POSITIVE_INFINITY,
                     )
                 )
         )
-        // ── Layer 3: top-left radial highlight (the "lit from above"
-        //    accent — a single bright spot that makes the card feel
-        //    three-dimensional). ──
+        // ── Layer 3: top-left radial highlight ──
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.radialGradient(
                         colors = listOf(
-                            VibeWhiteGlow.copy(alpha = 0.35f * glowPulse),
-                            VibePinkGlow.copy(alpha = 0.15f * glowPulse),
+                            VibeLightGlow.copy(alpha = 0.40f * glowPulse),
+                            VibePinkGlow.copy(alpha = 0.20f * glowPulse),
                             Color.Transparent,
                         ),
                         center = androidx.compose.ui.geometry.Offset(60f, 30f),
@@ -1476,25 +1466,24 @@ private fun VibeCard(stats: VibeStats) {
                     )
                 )
         )
-        // ── Layer 4: 1.5dp bright-purple border so the card edge
-        //    reads cleanly against PureBlack. ──
+        // ── Layer 4: bright border so the card edge reads ──
         Box(
             Modifier
                 .fillMaxSize()
-                .border(1.5.dp, VibePurpleGlow.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
+                .border(1.5.dp, VibeLightGlow.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
         )
         // ── Content ──
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Default.Insights, null,
-                    tint = VibeWhiteGlow,
+                    tint = VibeLightGlow,
                     modifier = Modifier.size(20.dp),
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     "Your Vibe",
-                    color = VibeWhiteGlow,
+                    color = VibeLightGlow,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                 )

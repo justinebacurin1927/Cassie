@@ -15,25 +15,22 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-        import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
@@ -43,9 +40,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -69,6 +74,7 @@ import com.example.cassie.ui.player.PlaylistScreen
 import com.example.cassie.ui.player.Top50Screen
 import com.example.cassie.ui.theme.CassieTheme
 import com.example.cassie.ui.theme.CassieColors
+import kotlin.math.roundToInt
 
 sealed class Screen {
     data object Home : Screen()
@@ -387,7 +393,6 @@ private fun CassieApp() {
                 }
                 StadiumNavBar(
                     activeItem = activeId,
-                    isPlaying = playerState.value.isPlaying,
                     onItemSelected = { id ->
                         val tabScreen: Screen = when (id) {
                             "home" -> Screen.Home
@@ -406,7 +411,17 @@ private fun CassieApp() {
     }
 }
 
-// ── Bottom Nav Bar (Stadium / Capsule Design) ────────────────────
+// ── Bottom Nav Bar (LumaBar Design) ────────────────────────────
+// Faithful Compose translation of the LumaBar React component:
+//   React                          Compose
+//   ─────                          ──────
+//   layoutId="active-indicator"    animated offset + blur glow
+//   backdrop-blur-2xl              translucent black bg
+//   from-blue-400 to-purple-500    Brush.linearGradient blue→purple
+//   animate={{ scale: 1.4 }}       active scale spring
+//   blur-2xl (24px)                24px RenderEffect blur (API 31+)
+//   border-gray-200/50             white border at 15% alpha
+//   z-50 / shadow                  8dp shadow
 private data class NavBarItem(
     val id: String,
     val icon: ImageVector,
@@ -421,70 +436,113 @@ private val navItems = listOf(
     NavBarItem("top50", Icons.AutoMirrored.Filled.TrendingUp, "Top 50"),
 )
 
+// Glow colors: from-blue-400 to-purple-500
+private val GlowStart = Color(0xFF60A5FA)
+private val GlowEnd   = Color(0xFF8B5CF6)
+
 @Composable
 private fun StadiumNavBar(
     activeItem: String,
-    isPlaying: Boolean = false,
     onItemSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // now-playing pulse dot animation
-    val infinite = rememberInfiniteTransition(label = "navPulse")
-    val pulseAlpha by infinite.animateFloat(
-        initialValue = 0.3f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1200, easing = LinearEasing), RepeatMode.Reverse),
-        label = "pulse"
+    val activeIdx = navItems.indexOfFirst { it.id == activeItem }
+    var rowWidth by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val indicatorSizeDp = 48.dp
+    val itemCount = navItems.size
+
+    // ── indicator position in pixels (spring-driven like framer-motion) ──
+    val indicatorSizePx = with(density) { indicatorSizeDp.toPx() }
+    val itemWidthPx = if (rowWidth == 0 || itemCount == 0) 0f
+                      else rowWidth.toFloat() / itemCount
+    val targetOffsetPx = if (itemWidthPx > 0f) {
+        itemWidthPx * activeIdx + (itemWidthPx - indicatorSizePx) / 2f
+    } else 0f
+
+    val indicatorOffset by animateFloatAsState(
+        targetValue = targetOffsetPx,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness    = Spring.StiffnessHigh,
+        ),
+        label = "indicatorSpring",
     )
 
-    Surface(
+    Box(
         modifier = modifier
-            .fillMaxWidth(),
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        color = CardGrey,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Box {
+        // ── Pill container: backdrop-blur-2xl + border + shadow ──
+        Box(
+            modifier = Modifier
+                .shadow(8.dp, RoundedCornerShape(50))
+                .clip(RoundedCornerShape(50))
+                .background(Color.Black.copy(alpha = 0.25f))  // dark:bg-black/20
+                .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(50))
+                .padding(6.dp),
+        ) {
+            // ── Layer 1: Glow indicator (behind items) ──
+            //     Reference: w-16 h-16 bg-gradient-to-r from-blue-400 to-purple-500
+            //                rounded-full blur-2xl -z-10
+            if (rowWidth > 0) {
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(indicatorOffset.roundToInt(), 0) }
+                        .size(indicatorSizeDp)
+                        .background(
+                            Brush.linearGradient(listOf(GlowStart, GlowEnd)),
+                            RoundedCornerShape(50),
+                        )
+                        .graphicsLayer {
+                            alpha = 0.35f
+                            if (Build.VERSION.SDK_INT >= 31) {
+                                renderEffect = android.graphics.RenderEffect
+                                    .createBlurEffect(24f, 24f, android.graphics.Shader.TileMode.CLAMP)
+                                    .asComposeRenderEffect()
+                            }
+                        },
+                )
+            }
+
+            // ── Layer 2: Item buttons (on top of glow) ──
+            //     Reference: flex items-center justify-center w-14 h-14
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(60.dp),
+                    .onSizeChanged { rowWidth = it.width },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
-                navItems.forEach { item ->
-                    val isActive = item.id == activeItem
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .clickable { onItemSelected(item.id) }
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                navItems.forEachIndexed { idx, item ->
+                    val isActive = idx == activeIdx
+
+                    // animate={{ scale: isActive ? 1.4 : 1 }}
+                    val iconScale by animateFloatAsState(
+                        targetValue = if (isActive) 1.35f else 1f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness    = Spring.StiffnessHigh,
+                        ),
+                        label = "iconScale",
+                    )
+
+                    // Reference: w-14 h-14 flex items-center justify-center
+                    //            text-gray-600 dark:text-gray-300
+                    IconButton(
+                        onClick = { onItemSelected(item.id) },
+                        modifier = Modifier.size(48.dp),
                     ) {
                         Icon(
                             item.icon,
                             contentDescription = item.label,
-                            tint = if (isActive) PurpleAccent else TextDim,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        // now-playing pulse dot between icon and label
-                        if (isActive && isPlaying) {
-                            Spacer(Modifier.height(3.dp))
-                            Box(
-                                Modifier
-                                    .size(4.dp)
-                                    .clip(CircleShape)
-                                    .background(PurpleAccent.copy(alpha = pulseAlpha))
-                            )
-                            Spacer(Modifier.height(3.dp))
-                        } else {
-                            Spacer(Modifier.height(4.dp))
-                        }
-                        Text(
-                            item.label,
-                            color = if (isActive) TextPrimary else TextDim,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium,
-                            letterSpacing = 0.3.sp,
+                            tint = if (isActive) Color.White
+                                   else Color.White.copy(alpha = 0.5f),
+                            modifier = Modifier
+                                .size(24.dp)
+                                .scale(iconScale),
                         )
                     }
                 }

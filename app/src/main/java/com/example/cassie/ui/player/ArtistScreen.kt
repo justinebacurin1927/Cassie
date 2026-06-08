@@ -150,13 +150,15 @@ private fun ArtistCard(
 
         if (expanded) {
             HorizontalDivider(color = TextDim.copy(alpha = 0.1f))
-            // Group the artist's songs by album so each album block
-            // shows its own cover art and name — not the generic
-            // "singer picture" on every row. This is the fix for
-            // "the album cover use the singer picture instead of
-            // its own".
-            val albumGroups = artist.songs.groupBy { it.album }
-            albumGroups.forEach { (albumName, albumSongs) ->
+            // Group by albumId (not album name) so each physical album
+            // gets its own cover art — even when album tags are
+            // missing or duplicated (e.g. "Unknown Album"). This
+            // ensures the first song of each REAL album drives
+            // the cover, not the artist's overall first song.
+            val albumGroups = artist.songs.groupBy { it.albumId }
+            albumGroups.forEach { (_, albumSongs) ->
+                val albumName = albumSongs.first().album
+
                 // ── Album header ──
                 Row(
                     modifier = Modifier
@@ -175,7 +177,7 @@ private fun ArtistCard(
                         val albumCoverSong = albumSongs.firstOrNull()
                         if (albumCoverSong?.albumArtUri != null) {
                             AsyncImage(
-                                model = remember(albumCoverSong.id) {
+                                model = remember(albumCoverSong.albumId, albumCoverSong.albumArtUri) {
                                     ImageRequest.Builder(context).data(albumCoverSong.albumArtUri).size(72)
                                         .memoryCachePolicy(CachePolicy.ENABLED).diskCachePolicy(CachePolicy.ENABLED).build()
                                 },

@@ -52,6 +52,14 @@ data class PlayerState(
 
 class PlaybackManager(app: Application) : AndroidViewModel(app) {
 
+    // MUST be declared FIRST — _playerState and listenedTimeSecBySong
+    // call loadTimeTracker() during construction, and without pm already
+    // initialized, loadTimeTracker() always returns emptyMap().
+    // That was the root cause of "Top 50 resets every restart" — the
+    // persisted data was silently ignored and then overwritten.
+    private val pm = PersistenceManager(getApplication())
+    private val persistenceManager: PersistenceManager get() = pm
+
     private val _playerState = MutableStateFlow(PlayerState(listenedTimeSecBySong = loadTimeTracker()))
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
 
@@ -88,8 +96,6 @@ class PlaybackManager(app: Application) : AndroidViewModel(app) {
 
     /** Queue of actions that execute once the controller connects. */
     private val pendingActions = mutableListOf<((MediaController) -> Unit)>()
-    private val pm = PersistenceManager(getApplication())
-    private val persistenceManager: PersistenceManager get() = pm
 
     /** Execute action immediately if controller is ready, otherwise queue it. */
     private fun withController(action: (MediaController) -> Unit) {

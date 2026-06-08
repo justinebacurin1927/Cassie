@@ -59,8 +59,9 @@ fun AlbumScreen(
     onBack: () -> Unit,
 ) {
     val albums = remember(songs) {
-        songs.groupBy { it.album }.map { (albumName, albumSongs) ->
-            AlbumGroup(albumName = albumName, artist = albumSongs.first().artist, songs = albumSongs)
+        songs.groupBy { it.albumId }.map { (_, albumSongs) ->
+            val first = albumSongs.first()
+            AlbumGroup(albumName = first.album, artist = first.artist, songs = albumSongs)
         }.sortedBy { it.albumName }
     }
 
