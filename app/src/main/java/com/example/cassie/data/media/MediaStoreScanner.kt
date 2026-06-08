@@ -84,7 +84,11 @@ class MediaStoreScanner(private val context: Context) {
                             duration = c.getLong(dur),
                             dateAdded = c.getLong(dateCol),
                             mimeType = c.getString(mime) ?: "audio/mpeg",
-                            albumArtUri = Uri.parse("content://media/external/audio/albumart/$aid").toString(),
+                            // Only build album art URI when albumId is valid (>0).
+                            // When aid is 0 (untagged files), all songs get the
+                            // same generic image from MediaStore, making every
+                            // album cover look identical.
+                            albumArtUri = if (aid > 0L) Uri.parse("content://media/external/audio/albumart/$aid").toString() else null,
                             genre = if (genreIdx >= 0) c.getString(genreIdx) ?: "" else "",
                             filePath = if (dataIdx >= 0) c.getString(dataIdx) else null,
                         ))

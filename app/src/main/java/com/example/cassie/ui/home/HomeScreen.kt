@@ -1393,95 +1393,39 @@ private fun SortBar(selected: SortOption, onSelect: (SortOption) -> Unit) {
 // Full purple-to-glowing-white gradient fill (was just a thin top
 // accent line). The base is deep purple, the top half glows lighter
 // and pinker, the bottom edge has a soft white glow that pulses.
-// ── VibeCard palette ────────────────────────────────────────────
-// The user reported "IT'S ALL BLACK" — previous purples (#3B0F7A,
-// #7B2DC9) were too dark against PureBlack. Replaced with a vivid
-// blue→purple→pink gradient (matching the LumaBar glow colors)
-// that is unmistakably colorful on any screen brightness.
-private val VibeBlueDeep     = Color(0xFF2563EB) // blue-600     — base
-private val VibePurpleMid    = Color(0xFF8B5CF6) // violet-500   — mid
-private val VibePinkGlow     = Color(0xFFEC4899) // pink-500     — glow
-private val VibeLightGlow    = Color(0xFFFDF2F8) // pink-50      — white wash
+// ── VibeCard ────────────────────────────────────────────────────
+// Ultra-simple: one bright gradient, white text, no complex layering.
+// Colors are unmistakably vibrant — orange → hot pink → purple —
+// so they CANNOT look black on any screen.
+private val VibeOrange = Color(0xFFF97316)
+private val VibePink   = Color(0xFFEC4899)
+private val VibePurple = Color(0xFF8B5CF6)
 
 @Composable
 private fun VibeCard(stats: VibeStats) {
-    // Pulse the white-glow layer so the card "breathes".
-    val glowInfinite = rememberInfiniteTransition(label = "vibeGlow")
-    val glowPulse by glowInfinite.animateFloat(
-        initialValue = 0.55f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(2200, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "glowPulse"
-    )
-
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .clip(RoundedCornerShape(16.dp))
+            .background(
+                Brush.horizontalGradient(
+                    colors = listOf(VibeOrange, VibePink, VibePurple),
+                )
+            )
+            .border(1.5.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(16.dp)),
     ) {
-        // ── Layer 1: vivid diagonal gradient spanning the whole card ──
-        //    CRITICAL: Do NOT set custom start/end — the default (0,0 →
-        //    width,height) makes the gradient span the entire box.
-        //    Using POSITIVE_INFINITY stretches it to a solid color!
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(VibeBlueDeep, VibePurpleMid, VibePinkGlow),
-                    )
-                )
-        )
-        // ── Layer 2: bottom white-glow wash (pulses) ──
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.Transparent,
-                            VibePinkGlow.copy(alpha = 0.30f * glowPulse),
-                            VibeLightGlow.copy(alpha = 0.50f * glowPulse),
-                            VibeLightGlow.copy(alpha = 0.60f * glowPulse),
-                        ),
-                    )
-                )
-        )
-        // ── Layer 3: top-left radial highlight ──
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            VibeLightGlow.copy(alpha = 0.40f * glowPulse),
-                            VibePinkGlow.copy(alpha = 0.20f * glowPulse),
-                            Color.Transparent,
-                        ),
-                        center = androidx.compose.ui.geometry.Offset(60f, 30f),
-                        radius = 260f,
-                    )
-                )
-        )
-        // ── Layer 4: bright border so the card edge reads ──
-        Box(
-            Modifier
-                .fillMaxSize()
-                .border(1.5.dp, VibeLightGlow.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-        )
-        // ── Content ──
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Default.Insights, null,
-                    tint = VibeLightGlow,
+                    tint = Color.White,
                     modifier = Modifier.size(20.dp),
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     "Your Vibe",
-                    color = VibeLightGlow,
+                    color = Color.White,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                 )
