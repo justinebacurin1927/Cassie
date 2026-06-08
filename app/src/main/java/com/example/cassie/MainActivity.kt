@@ -27,6 +27,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -40,6 +41,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -47,8 +49,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.abs
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.cassie.data.media.EqualizerManager
@@ -404,11 +408,11 @@ private fun CassieApp() {
     }
 }
 
-// ── Bottom Nav Bar ─────────────────────────────────────────────
-// Clean, performant design matching Cassie's dark theme.
-// Each item shows an icon + label, active item is highlighted with
-// PurpleAccent and a subtle background pill. Smooth spring transition
-// on the active pill position. No blur, no glow — just crisp UI.
+// ── Bottom Nav Bar (Pill / Capsule) ───────────────────────────
+// shadcn-inspired pill design with CORRECT Cassie colors:
+// SurfaceGrey pill, PurpleAccent active icon/label,
+// TextDim inactive icon. Each item is evenly weighted so
+// alignment is always centered.
 private data class NavBarItem(
     val id: String,
     val icon: ImageVector,
@@ -423,6 +427,9 @@ private val navItems = listOf(
     NavBarItem("top50", Icons.AutoMirrored.Filled.TrendingUp, "Top 50"),
 )
 
+// Minimum gap between icon and label (used inside active items)
+private val iconLabelGap = 8.dp
+
 @Composable
 private fun StadiumNavBar(
     activeItem: String,
@@ -430,76 +437,77 @@ private fun StadiumNavBar(
     modifier: Modifier = Modifier,
 ) {
     val activeIdx = navItems.indexOfFirst { it.id == activeItem }
-    var totalWidth by remember { mutableIntStateOf(0) }
-    val itemCount = navItems.size
 
-    // Animate active pill position with a spring
-    val itemWidthPx = if (totalWidth == 0 || itemCount == 0) 0f
-                      else totalWidth.toFloat() / itemCount
-    val targetPillOffset = if (itemWidthPx > 0f) itemWidthPx * activeIdx else 0f
-    val pillOffset by animateFloatAsState(
-        targetValue = targetPillOffset,
+    // Animate a "smooth index" for the label crossfade.
+    val smoothIdx by animateFloatAsState(
+        targetValue = activeIdx.toFloat(),
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness    = Spring.StiffnessMedium,
+            stiffness    = Spring.StiffnessMediumLow,
         ),
-        label = "pillSpring",
+        label = "navSpring",
     )
 
-    Box(
+    Surface(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        contentAlignment = Alignment.Center,
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(50),
+        color = SurfaceGrey,
+        tonalElevation = 0.dp,
+        shadowElevation = 6.dp,
+        border = BorderStroke(1.dp, TextDim.copy(alpha = 0.12f)),
     ) {
-        Surface(
-            shape = RoundedCornerShape(50),
-            color = SurfaceGrey,
-            tonalElevation = 0.dp,
-            shadowElevation = 4.dp,
+        Row(
+            modifier = Modifier.padding(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.padding(4.dp)) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp)
-                        .onSizeChanged { totalWidth = it.width },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    navItems.forEachIndexed { idx, item ->
-                        val isActive = idx == activeIdx
+            navItems.forEachIndexed { idx, item ->
+                val isActive = idx == activeIdx
 
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .clip(RoundedCornerShape(50))
-                                .background(
-                                    if (isActive) PurpleAccent.copy(alpha = 0.15f)
-                                    else Color.Transparent
-                                )
-                                .clickable { onItemSelected(item.id) },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                            ) {
-                                Icon(
-                                    item.icon,
-                                    contentDescription = item.label,
-                                    tint = if (isActive) PurpleAccent else TextDim,
-                                    modifier = Modifier.size(22.dp),
-                                )
-                                Spacer(Modifier.height(2.dp))
-                                Text(
-                                    item.label,
-                                    color = if (isActive) PurpleAccent else TextDim,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1,
-                                )
-                            }
+                // Active fraction for this item: 1 when it's the
+                // active index, falls off smoothly via spring blend.
+                val dist = abs(smoothIdx - idx)
+                val activeFraction =
+                    (1f - dist.coerceIn(0f, 1f)).coerceIn(0f, 1f)
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f) // ← even distribution
+                        .clip(RoundedCornerShape(50))
+                        .background(
+                            if (isActive) PurpleAccent.copy(alpha = 0.12f)
+                            else Color.Transparent
+                        )
+                        .clickable { onItemSelected(item.id) }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        Icon(
+                            item.icon,
+                            contentDescription = item.label,
+                            tint = if (isActive) PurpleAccent else TextDim,
+                            modifier = Modifier.size(22.dp),
+                        )
+
+                        // Label fades in/out with the spring-driven
+                        // active fraction. No width animation — just
+                        // alpha, which is GPU-friendly.
+                        if (activeFraction > 0.01f) {
+                            Spacer(Modifier.width(iconLabelGap * activeFraction))
+                            Text(
+                                item.label,
+                                color = PurpleAccent,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.alpha(activeFraction),
+                            )
                         }
                     }
                 }

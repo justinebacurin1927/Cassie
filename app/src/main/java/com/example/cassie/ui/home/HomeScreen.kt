@@ -1389,17 +1389,12 @@ private fun SortBar(selected: SortOption, onSelect: (SortOption) -> Unit) {
     }
 }
 
-// ── Your Vibe Card — listening stats dashboard ────────────────────
-// Full purple-to-glowing-white gradient fill (was just a thin top
-// accent line). The base is deep purple, the top half glows lighter
-// and pinker, the bottom edge has a soft white glow that pulses.
 // ── VibeCard ────────────────────────────────────────────────────
-// Ultra-simple: one bright gradient, white text, no complex layering.
-// Colors are unmistakably vibrant — orange → hot pink → purple —
-// so they CANNOT look black on any screen.
-private val VibeOrange = Color(0xFFF97316)
-private val VibePink   = Color(0xFFEC4899)
-private val VibePurple = Color(0xFF8B5CF6)
+// Pure violet gradient — deep purple left → bright violet right.
+// Single hue family so it's unmistakably purple/violet, not rainbow.
+private val VibeDeep   = Color(0xFF4C1D95) // deep violet
+private val VibeBright = Color(0xFF8B5CF6) // bright purple
+private val VibeLight  = Color(0xFFC4B5FD) // light lavender
 
 @Composable
 private fun VibeCard(stats: VibeStats) {
@@ -1410,7 +1405,7 @@ private fun VibeCard(stats: VibeStats) {
             .clip(RoundedCornerShape(16.dp))
             .background(
                 Brush.horizontalGradient(
-                    colors = listOf(VibeOrange, VibePink, VibePurple),
+                    colors = listOf(VibeDeep, VibeBright, VibeLight),
                 )
             )
             .border(1.5.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(16.dp)),
