@@ -6,8 +6,6 @@ import android.provider.MediaStore
 import androidx.compose.runtime.Stable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
-
 @Stable
 data class Song(
     val id: Long,
@@ -104,7 +102,20 @@ class MediaStoreScanner(private val context: Context) {
                 // same generic MediaStore image.
                 if (seenAlbumIds.isNotEmpty()) {
                     val artMap = resolveAlbumArt(seenAlbumIds)
-                    songs.replaceAll { it.copy(albumArtUri = artMap[it.albumId]) }
+                    val hasAnyArt = artMap.values.any { it != null }
+                    if (hasAnyArt) {
+                        // Albums table returned real art — use it.
+                        songs.replaceAll { it.copy(albumArtUri = artMap[it.albumId]) }
+                    } else {
+                        // Fallback: if the Albums query found NO art
+                        // (table missing, permission denied, or this
+                        // device just doesn't populate ALBUM_ART),
+                        // construct URIs the old way using albumId.
+                        songs.replaceAll { song ->
+                            song.copy(albumArtUri = if (song.albumId > 0L)
+                                "content://media/external/audio/albumart/${song.albumId}" else null)
+                        }
+                    }
                 }
             }
         } catch (_: SecurityException) {
@@ -118,15 +129,19 @@ class MediaStoreScanner(private val context: Context) {
 
     /**
      * Queries the [MediaStore.Audio.Albums] table for all given [albumIds]
-     * and returns a map: albumId → real album art URI (or null if no art
-     * exists). Uses a single IN query so it scales to any library size.
+     * and returns a map: albumId → album art content URI (or null if no
+     * art exists). Uses a single IN query so it scales to any library size.
+     *
+     * When the album truly has art, we return the standard content URI
+     * (`content://media/external/audio/albumart/{id}`) which Coil can
+     * load on all API levels. Albums without real art get null so the
+     * UI shows the fallback icon instead of a generic MediaStore image.
      */
     private fun resolveAlbumArt(albumIds: Set<Long>): Map<Long, String?> {
         val validIds = albumIds.filter { it > 0L }
         if (validIds.isEmpty()) return emptyMap()
 
         val result = mutableMapOf<Long, String?>()
-        // Every ID we were asked about starts as null (no art).
         validIds.forEach { result[it] = null }
 
         val placeholders = validIds.joinToString(",") { "?" }
@@ -145,16 +160,14 @@ class MediaStoreScanner(private val context: Context) {
                     val aid = cursor.getLong(idCol)
                     val artPath = cursor.getString(artCol)
                     if (!artPath.isNullOrEmpty()) {
-                        // Use file:// URI — works with Coil and avoids
-                        // MediaStore returning a generic image for a
-                        // missing art ID.
-                        result[aid] = Uri.fromFile(File(artPath)).toString()
+                        // Real album art exists — use the standard
+                        // content URI format that Coil can load.
+                        result[aid] = "content://media/external/audio/albumart/$aid"
                     }
                 }
             }
         } catch (_: Exception) {
-            // If the query fails (permission, table missing, etc.)
-            // fall back to no art for everyone.
+            // Query failed — will trigger the fallback in scan()
         }
         return result
     }

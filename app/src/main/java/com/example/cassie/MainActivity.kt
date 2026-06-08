@@ -113,6 +113,7 @@ class MainActivity : ComponentActivity() {
 // ── Theme Tokens ──────────────────────────────────────────────────
 private val CardGrey     = CassieColors.CardGrey
 private val SurfaceGrey  = CassieColors.SurfaceGrey
+private val PureBlack    = CassieColors.PureBlack
 private val PurpleAccent = CassieColors.PurpleAccent
 private val TextPrimary  = CassieColors.TextPrimary
 private val TextDim      = CassieColors.TextDim
@@ -427,8 +428,9 @@ private val navItems = listOf(
     NavBarItem("top50", Icons.AutoMirrored.Filled.TrendingUp, "Top 50"),
 )
 
-// Minimum gap between icon and label (used inside active items)
-private val iconLabelGap = 8.dp
+// Gap between icon and label (active items). Increased from 8→10dp
+// so the letters have breathing room.
+private val iconLabelGap = 10.dp
 
 @Composable
 private fun StadiumNavBar(
@@ -453,10 +455,10 @@ private fun StadiumNavBar(
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp),
         shape = RoundedCornerShape(50),
-        color = SurfaceGrey,
+        color = PureBlack,
         tonalElevation = 0.dp,
         shadowElevation = 6.dp,
-        border = BorderStroke(1.dp, TextDim.copy(alpha = 0.12f)),
+        border = BorderStroke(1.dp, PurpleAccent.copy(alpha = 0.15f)),
     ) {
         Row(
             modifier = Modifier.padding(4.dp),
